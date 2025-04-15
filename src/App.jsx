@@ -36,7 +36,7 @@ const App = () => {
           <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
           <main className="flex-1 p-4 md:p-8 overflow-auto">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              {/* <Route path="/" element={<Dashboard />} /> */}
               <Route path="/profile" element={<Profile />} />
               <Route path="/products" element={<Product />} />
               <Route path="/categories" element={<Category />} />

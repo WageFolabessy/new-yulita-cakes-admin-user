@@ -1,11 +1,15 @@
 import { useState, useEffect, useContext } from "react";
+import PropTypes from "prop-types";
 import { AppContext } from "../../context/AppContext";
 import Modal from "../Modal";
 import { toast } from "react-toastify";
 
-const EditAdminModal = ({ isOpen, onClose, admin, setAdmins }) => {
-  // Dapatkan authFetch, user (yang sedang login) dan fungsi update user dari context
-  const { authFetch, user, setUser } = useContext(AppContext);
+const EditAdminModal = ({ isOpen, onClose, admin, onAdminUpdated }) => {
+  const {
+    authFetch,
+    user: loggedInUser,
+    setUser: setLoggedInUser,
+  } = useContext(AppContext);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -13,126 +17,173 @@ const EditAdminModal = ({ isOpen, onClose, admin, setAdmins }) => {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // Reset form dan error ketika admin berubah
   useEffect(() => {
-    if (admin) {
+    if (isOpen && admin) {
       setFormData({
-        name: admin.name,
-        email: admin.email,
+        name: admin.name || "",
+        email: admin.email || "",
       });
       setErrors({});
     }
-  }, [admin]);
+    if (!isOpen) {
+      setFormData({ name: "", email: "" });
+      setErrors({});
+      setLoading(false);
+    }
+  }, [admin, isOpen]);
 
-  // Handler untuk perubahan input
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (errors[e.target.name]) {
+      setErrors({ ...errors, [e.target.name]: null });
+    }
   };
 
-  // Handler submit form untuk memperbarui data admin
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!admin || loading) return;
+
     setLoading(true);
+    setErrors({});
+
     try {
-      const response = await authFetch(
-        `/api/admin/update_selected_admin/${admin.id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify(formData),
-        }
-      );
+      const response = await authFetch(`/admin/admin/${admin.id}`, {
+        method: "PUT",
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
 
       if (!response.ok) {
-        const errorData = await response.json();
-        setErrors(errorData.errors || {});
-        toast.error("Gagal memperbarui admin.");
-        return;
+        setErrors(data.errors || {});
+        toast.error(data.message || "Gagal memperbarui data admin.");
+      } else {
+        toast.success(data.message || "Data admin berhasil diperbarui.");
+
+        if (onAdminUpdated && data.user) {
+          onAdminUpdated(data.user);
+
+          if (loggedInUser && loggedInUser.id === data.user.id) {
+            setLoggedInUser(data.user);
+          }
+        }
+        onClose();
       }
-
-      const updatedAdmin = await response.json();
-
-      // Perbarui daftar admin di state parent
-      setAdmins((prevAdmins) =>
-        prevAdmins.map((item) =>
-          item.id === admin.id ? updatedAdmin : item
-        )
-      );
-      toast.success("Data admin berhasil diperbaharui");
-
-      // Jika admin yang diperbarui adalah admin yang sedang login, perbarui session storage
-      if (user && user.id === updatedAdmin.id) {
-        setUser(updatedAdmin);
-      }
-
-      onClose();
     } catch (error) {
       console.error("Error updating admin:", error);
-      toast.error("Terjadi kesalahan jaringan.");
+      if (error.message !== "Unauthorized") {
+        toast.error("Terjadi kesalahan jaringan saat memperbarui admin.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  if (!admin) return null;
+  if (!isOpen || !admin) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Admin">
-      <div className="space-y-6">
-        <form onSubmit={handleSubmit}>
-          {/* Nama */}
-          <div className="mb-4">
-            <label className="block mb-2">Nama</label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              required
-              className="w-full border px-3 py-2 rounded"
-              placeholder="Nama Lengkap"
-            />
-            {errors.name && (
-              <p className="text-red-500 text-sm">{errors.name}</p>
-            )}
-          </div>
-          {/* Email */}
-          <div className="mb-4">
-            <label className="block mb-2">Email</label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              required
-              className="w-full border px-3 py-2 rounded"
-              placeholder="email@example.com"
-            />
-            {errors.email && (
-              <p className="text-red-500 text-sm">{errors.email}</p>
-            )}
-          </div>
-          {/* Tombol */}
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition duration-200"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 transition duration-200"
-            >
-              {loading ? "Memperbarui..." : "Perbarui"}
-            </button>
-          </div>
-        </form>
-      </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Edit Admin: ${admin.name}`}
+    >
+      <form onSubmit={handleSubmit} noValidate>
+        {/* Nama */}
+        <div className="mb-4">
+          <label
+            htmlFor={`edit-name-${admin.id}`}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Nama Lengkap
+          </label>
+          <input
+            id={`edit-name-${admin.id}`}
+            type="text"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            required
+            disabled={loading}
+            className={`w-full px-3 py-2 border rounded-md outline-none focus:ring-2 transition ${
+              errors.name
+                ? "border-red-500 focus:ring-red-300"
+                : "border-gray-300 focus:ring-pink-400 focus:border-pink-400"
+            } ${loading ? "bg-gray-100" : ""}`}
+          />
+          {errors.name &&
+            errors.name.map((error, index) => (
+              <p key={index} className="text-red-600 text-xs mt-1">
+                {error}
+              </p>
+            ))}
+        </div>
+
+        {/* Email */}
+        <div className="mb-6">
+          <label
+            htmlFor={`edit-email-${admin.id}`}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Alamat Email
+          </label>
+          <input
+            id={`edit-email-${admin.id}`}
+            type="email"
+            name="email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+            disabled={loading}
+            className={`w-full px-3 py-2 border rounded-md outline-none focus:ring-2 transition ${
+              errors.email
+                ? "border-red-500 focus:ring-red-300"
+                : "border-gray-300 focus:ring-pink-400 focus:border-pink-400"
+            } ${loading ? "bg-gray-100" : ""}`}
+          />
+          {errors.email &&
+            errors.email.map((error, index) => (
+              <p key={index} className="text-red-600 text-xs mt-1">
+                {error}
+              </p>
+            ))}
+        </div>
+
+        {/* Tombol Aksi */}
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition disabled:opacity-50"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition ${
+              loading
+                ? "bg-pink-300 cursor-not-allowed"
+                : "bg-pink-600 hover:bg-pink-700"
+            }`}
+          >
+            {loading ? "Menyimpan..." : "Simpan Perubahan"}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
+};
+
+EditAdminModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  admin: PropTypes.shape({
+    id: PropTypes.number,
+    name: PropTypes.string,
+    email: PropTypes.string,
+  }),
+  onAdminUpdated: PropTypes.func.isRequired,
 };
 
 export default EditAdminModal;

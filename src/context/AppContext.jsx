@@ -1,55 +1,102 @@
-import { createContext, useState, useEffect, useCallback, useRef } from "react";
+import {
+  createContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
+import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
+
+const API_BASE_URL = "/api";
+const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
+const ADMIN_TOKEN_KEY = "admin_token";
+const ADMIN_USER_KEY = "admin_user";
 
 export const AppContext = createContext();
 
 const AppProvider = ({ children }) => {
-  // Ambil token dan data user dari sessionStorage (jika ada)
-  const [token, setToken] = useState(
-    () => sessionStorage.getItem("admin_token") || null
-  );
-  const [user, setUser] = useState(() => {
-    const storedUser = sessionStorage.getItem("admin_user");
-    return storedUser ? JSON.parse(storedUser) : null;
-  });
   const navigate = useNavigate();
 
-  const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 menit
+  const [token, setToken] = useState(() =>
+    sessionStorage.getItem(ADMIN_TOKEN_KEY)
+  );
 
-  // Gunakan useRef untuk menyimpan timer dan flag logout
+  const [user, setUser] = useState(() => {
+    const storedUser = sessionStorage.getItem(ADMIN_USER_KEY);
+    try {
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      console.error("Failed to parse stored user:", error);
+      sessionStorage.removeItem(ADMIN_USER_KEY);
+      return null;
+    }
+  });
+
   const inactivityTimerRef = useRef(null);
   const hasLoggedOutRef = useRef(false);
 
-  // Update token di state dan sessionStorage
-  const updateToken = (newToken) => {
+  const updateToken = useCallback((newToken) => {
     setToken(newToken);
     if (newToken) {
-      sessionStorage.setItem("admin_token", newToken);
+      sessionStorage.setItem(ADMIN_TOKEN_KEY, newToken);
     } else {
-      sessionStorage.removeItem("admin_token");
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
     }
-  };
+  }, []);
 
-  // Update user di state dan sessionStorage
-  const updateUser = (newUser) => {
+  const updateUser = useCallback((newUser) => {
     setUser(newUser);
     if (newUser) {
-      sessionStorage.setItem("admin_user", JSON.stringify(newUser));
+      sessionStorage.setItem(ADMIN_USER_KEY, JSON.stringify(newUser));
     } else {
-      sessionStorage.removeItem("admin_user");
+      sessionStorage.removeItem(ADMIN_USER_KEY);
     }
-  };
+  }, []);
 
-  // authFetch untuk request API dengan header Authorization
+  const handleLogout = useCallback(
+    async (options = { showToast: true, message: null }) => {
+      if (hasLoggedOutRef.current) return;
+      hasLoggedOutRef.current = true;
+
+      try {
+        const currentToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+        if (currentToken) {
+          await fetch(`${API_BASE_URL}/admin/logout`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${currentToken}`,
+            },
+          });
+        }
+      } catch (error) {
+        console.error("Error during API logout call:", error);
+      } finally {
+        updateToken(null);
+        updateUser(null);
+        if (options.showToast) {
+          toast.success(options.message || "Anda berhasil keluar.");
+        }
+        navigate("/login");
+        setTimeout(() => {
+          hasLoggedOutRef.current = false;
+        }, 500);
+      }
+    },
+    [navigate, updateToken, updateUser]
+  );
+
   const authFetch = useCallback(
     async (url, options = {}) => {
+      const currentToken = token;
       const defaultHeaders = {
         Accept: "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
+        ...(currentToken && { Authorization: `Bearer ${currentToken}` }),
       };
 
-      // Jika body bukan FormData, set Content-Type ke application/json
       if (!(options.body instanceof FormData)) {
         defaultHeaders["Content-Type"] = "application/json";
       }
@@ -60,54 +107,37 @@ const AppProvider = ({ children }) => {
       };
 
       try {
-        const response = await fetch(url, mergedOptions);
-        if (response.status === 401) {
-          // Hanya panggil logout sekali
-          if (!hasLoggedOutRef.current) {
-            handleLogout();
-            toast.error("Sesi Anda telah berakhir. Silakan login kembali.");
-          }
+        const response = await fetch(`${API_BASE_URL}${url}`, mergedOptions);
+
+        if (response.status === 401 && !hasLoggedOutRef.current) {
+          handleLogout({
+            showToast: true,
+            message: "Sesi Anda telah berakhir. Silakan login kembali.",
+          });
+          throw new Error("Unauthorized");
         }
         return response;
       } catch (error) {
-        console.error("Network error:", error);
-        toast.error("Terjadi kesalahan jaringan. Silakan coba lagi.");
+        if (error.message !== "Unauthorized") {
+          console.error("Fetch error:", error);
+          toast.error("Terjadi kesalahan koneksi. Silakan coba lagi.");
+        }
         throw error;
       }
     },
-    [token] // Jangan masukkan handleLogout agar tidak terjadi dependency circular
+    [token, handleLogout]
   );
 
-  // Fungsi logout (pastikan hanya dipanggil sekali)
-  const handleLogout = useCallback(async () => {
-    if (hasLoggedOutRef.current) return; // Cegah logout ganda
-    hasLoggedOutRef.current = true;
-    try {
-      const response = await authFetch("/api/admin/logout", {
-        method: "POST",
-      });
-      if (!response.ok) {
-        console.error("Logout API error:", await response.text());
-      }
-    } catch (error) {
-      console.error("Error saat logout:", error);
-    } finally {
-      updateToken(null);
-      updateUser(null);
-      navigate("/login");
-      toast.success("Anda berhasil keluar");
-    }
-  }, [navigate, authFetch]);
-
-  // Reset timer inaktivitas
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current);
     }
     inactivityTimerRef.current = setTimeout(() => {
       if (!hasLoggedOutRef.current) {
-        handleLogout();
-        toast.info("Sesi Anda telah berakhir karena tidak ada aktivitas.");
+        handleLogout({
+          showToast: true,
+          message: "Sesi Anda berakhir karena tidak ada aktivitas.",
+        });
       }
     }, INACTIVITY_TIMEOUT);
   }, [handleLogout]);
@@ -122,9 +152,12 @@ const AppProvider = ({ children }) => {
         "touchstart",
       ];
       activityEvents.forEach((eventName) => {
-        window.addEventListener(eventName, resetInactivityTimer);
+        window.addEventListener(eventName, resetInactivityTimer, {
+          passive: true,
+        });
       });
       resetInactivityTimer();
+
       return () => {
         activityEvents.forEach((eventName) => {
           window.removeEventListener(eventName, resetInactivityTimer);
@@ -133,20 +166,30 @@ const AppProvider = ({ children }) => {
           clearTimeout(inactivityTimerRef.current);
         }
       };
+    } else {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
     }
   }, [token, resetInactivityTimer]);
 
-  const value = {
-    token,
-    user,
-    setToken: updateToken,
-    setUser: updateUser,
-    navigate,
-    handleLogout,
-    authFetch,
-  };
+  const value = useMemo(
+    () => ({
+      token,
+      user,
+      setToken: updateToken,
+      setUser: updateUser,
+      handleLogout,
+      authFetch,
+    }),
+    [token, user, updateToken, updateUser, handleLogout, authFetch]
+  );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};
+
+AppProvider.propTypes = {
+  children: PropTypes.node.isRequired,
 };
 
 export default AppProvider;

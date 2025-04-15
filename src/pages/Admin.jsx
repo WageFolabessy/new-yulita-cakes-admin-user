@@ -1,106 +1,102 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
 import DataTable from "react-data-table-component";
 import { FaPlus, FaEye, FaEdit, FaTrash } from "react-icons/fa";
+import { toast } from 'react-toastify'; // Import toast
+
 import AddAdminModal from "../components/Admin/AddAdminModal";
 import EditAdminModal from "../components/Admin/EditAdminModal";
 import ViewAdminModal from "../components/Admin/ViewAdminModal";
 import DeleteAdminModal from "../components/Admin/DeleteAdminModal";
+import FilterComponent from "../components/Admin/FilterComponent";
+
 import { AppContext } from "../context/AppContext";
 import customStyles from "../mod/tableSyles";
 
-const FilterComponent = ({ filterText, onFilter, onClear }) => (
-  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6">
-    <input
-  type="text"
-  placeholder="Cari Admin..."
-  aria-label="Search Input"
-  value={filterText}
-  onChange={onFilter}
-  className="border border-purple-400 bg-purple-100 px-4 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all w-full sm:w-72 placeholder-purple-600 text-purple-900"
- />
-
-    <button
-  onClick={onClear}
-  className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors duration-200 w-full sm:w-auto"
->
-  Reset Pencarian
-</button>
-
-  </div>
-);
-
 const Admin = () => {
-  // Data admin, awalnya kosong (akan diisi dari API)
   const [admins, setAdmins] = useState([]);
   const { authFetch } = useContext(AppContext);
 
-  // State modal dan data terpilih
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState(null);
   const [loadingAdmins, setLoadingAdmins] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
-  // State untuk filter pencarian
   const [filterText, setFilterText] = useState("");
   const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
 
+  const fetchAdmins = useCallback(async () => {
+    setLoadingAdmins(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/admin");
+
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data admin." };
+        try {
+          errorData = await response.json();
+        } catch (e) { console.error("Failed to parse error JSON", e); }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+
+      const result = await response.json();
+      setAdmins(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching admins:", error);
+       if (error.message !== 'Unauthorized') {
+           toast.error(`Error: ${error.message}`);
+           setFetchError(error.message);
+       }
+      setAdmins([]);
+    } finally {
+      setLoadingAdmins(false);
+    }
+  }, [authFetch]);
+
   useEffect(() => {
-    document.title = "Dasbor - Admin";
+    document.title = "Yulita Cakes | Kelola Admin";
+    fetchAdmins();
+  }, [fetchAdmins]);
 
-    // Panggil API untuk mengambil data admin
-    authFetch("/api/admin/admin")
-      .then((response) => response.json())
-      .then((admins) => {
-        setAdmins(admins);
-        setLoadingAdmins(false);
-      })
-      .catch((error) => {
-        console.error("Error fetching admin:", error);
-        setLoadingAdmins(false);
-      });
-  });
-
-  // Handler untuk membuka/menutup modal
   const openAddModal = () => setIsAddModalOpen(true);
   const closeAddModal = () => setIsAddModalOpen(false);
+  const openEditModal = (admin) => { setSelectedAdmin(admin); setIsEditModalOpen(true); };
+  const closeEditModal = () => { setSelectedAdmin(null); setIsEditModalOpen(false); };
+  const openViewModal = (admin) => { setSelectedAdmin(admin); setIsViewModalOpen(true); };
+  const closeViewModal = () => { setSelectedAdmin(null); setIsViewModalOpen(false); };
+  const openDeleteModal = (admin) => { setSelectedAdmin(admin); setIsDeleteModalOpen(true); };
+  const closeDeleteModal = () => { setSelectedAdmin(null); setIsDeleteModalOpen(false); };
 
-  const openEditModal = (admin) => {
-    setSelectedAdmin(admin);
-    setIsEditModalOpen(true);
-  };
-  const closeEditModal = () => {
-    setSelectedAdmin(null);
-    setIsEditModalOpen(false);
-  };
+  const handleAdminAdded = useCallback((newAdmin) => {
+    setAdmins((prevAdmins) => [newAdmin, ...prevAdmins]);
+    toast.success("Admin baru berhasil ditambahkan.");
+  }, []);
 
-  const openViewModal = (admin) => {
-    setSelectedAdmin(admin);
-    setIsViewModalOpen(true);
-  };
-  const closeViewModal = () => {
-    setSelectedAdmin(null);
-    setIsViewModalOpen(false);
-  };
+  const handleAdminUpdated = useCallback((updatedAdmin) => {
+    setAdmins((prevAdmins) =>
+      prevAdmins.map((admin) =>
+        admin.id === updatedAdmin.id ? updatedAdmin : admin
+      )
+    );
+    toast.success("Data admin berhasil diperbarui.");
+  }, []);
 
-  const openDeleteModal = (admin) => {
-    setSelectedAdmin(admin);
-    setIsDeleteModalOpen(true);
-  };
-  const closeDeleteModal = () => {
-    setSelectedAdmin(null);
-    setIsDeleteModalOpen(false);
-  };
+  const handleAdminDeleted = useCallback((deletedAdminId) => {
+    setAdmins((prevAdmins) =>
+      prevAdmins.filter((admin) => admin.id !== deletedAdminId)
+    );
+    toast.success("Admin berhasil dihapus.");
+  }, []);
 
-  // Filter data admin berdasarkan nama atau email
-  const filteredAdmins = admins.filter(
+
+  const filteredAdmins = useMemo(() => admins.filter(
     (admin) =>
-      admin.name.toLowerCase().includes(filterText.toLowerCase()) ||
-      admin.email.toLowerCase().includes(filterText.toLowerCase())
-  );
+      (admin.name && admin.name.toLowerCase().includes(filterText.toLowerCase())) ||
+      (admin.email && admin.email.toLowerCase().includes(filterText.toLowerCase()))
+  ), [admins, filterText]);
 
-  // Sub header untuk DataTable (filter pencarian)
   const subHeaderComponent = useMemo(() => {
     const handleClear = () => {
       if (filterText) {
@@ -108,7 +104,6 @@ const Admin = () => {
         setFilterText("");
       }
     };
-
     return (
       <FilterComponent
         onFilter={(e) => setFilterText(e.target.value)}
@@ -118,11 +113,11 @@ const Admin = () => {
     );
   }, [filterText, resetPaginationToggle]);
 
-  // Kolom untuk DataTable
-  const columns = [
+  const columns = useMemo(() => [
     {
       name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
+      selector: (row, index) => index + 1,
+      sortable: false,
       width: "60px",
       center: true,
     },
@@ -130,55 +125,48 @@ const Admin = () => {
       name: "Nama",
       selector: (row) => row.name,
       sortable: true,
-      minWidth: "150px",
+      minWidth: "180px",
     },
     {
       name: "Email",
       selector: (row) => row.email,
       sortable: true,
-      minWidth: "200px",
+      minWidth: "220px",
     },
     {
       name: "Tanggal Dibuat",
-      selector: (row) => {
-        const date = new Date(row.created_at);
-        return date.toLocaleString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-      },
+      selector: (row) => row.created_at,
       sortable: true,
-      wrap: true,
-      minWidth: "150px",
+      cell: (row) => row.created_at ? new Date(row.created_at).toLocaleString("id-ID", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      }) : '-',
+      minWidth: "170px",
     },
     {
       name: "Aksi",
       cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
+        <div className="flex justify-center items-center gap-2">
           <button
             onClick={() => openViewModal(row)}
-            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-md transition-colors"
             title="Lihat Detail"
           >
-            <FaEye className="text-lg" />
+            <FaEye className="w-4 h-4" />
           </button>
           <button
             onClick={() => openEditModal(row)}
-            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
             title="Edit"
           >
-            <FaEdit className="text-lg" />
+            <FaEdit className="w-4 h-4" />
           </button>
           <button
             onClick={() => openDeleteModal(row)}
-            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
             title="Hapus"
           >
-            <FaTrash className="text-lg" />
+            <FaTrash className="w-4 h-4" />
           </button>
         </div>
       ),
@@ -186,38 +174,35 @@ const Admin = () => {
       allowOverflow: true,
       button: true,
       center: true,
-      minWidth: "150px",
+      minWidth: "120px",
     },
-  ];
+  ], [openViewModal, openEditModal, openDeleteModal]);
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header: judul dan tombol tambah admin */}
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-        <h1 className="text-3xl font-bold mb-4 sm:mb-0">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
           Kelola Admin
         </h1>
         <button
-  onClick={openAddModal}
-  className="flex items-center bg-pink-600 text-white px-5 py-2.5 rounded-lg hover:bg-pink-700 transition-colors shadow-md hover:shadow-lg"
->
-  <FaPlus className="mr-2 text-lg" />
-  Tambah Admin
-</button>
-
+          onClick={openAddModal}
+          className="flex items-center bg-pink-600 text-white px-4 py-2 rounded-lg hover:bg-pink-700 transition-colors shadow-sm hover:shadow-lg text-sm font-medium"
+        >
+          <FaPlus className="mr-2" />
+          Tambah Admin
+        </button>
       </div>
-      {/* Tabel DataTable */}
-      <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-        {loadingAdmins ? (
-          <p className="text-center text-gray-500">Memuat Admin...</p>
-        ) : (
-          <DataTable
+
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
+        <DataTable
             columns={columns}
             data={filteredAdmins}
+            progressPending={loadingAdmins}
+            progressComponent={<div className="p-4 text-center text-gray-500">Memuat data...</div>}
             pagination
             paginationPerPage={10}
-            paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
+            paginationRowsPerPageOptions={[10, 15, 20, 50]}
             paginationComponentOptions={{
               rowsPerPageText: "Baris per halaman:",
               rangeSeparatorText: "dari",
@@ -231,25 +216,23 @@ const Admin = () => {
             striped
             customStyles={customStyles}
             noDataComponent={
-              <div className="p-4 text-center text-gray-500">
-                Tidak ada data admin
+              <div className="p-6 text-center text-gray-500">
+                 {fetchError ? `Gagal memuat data: ${fetchError}` : 'Tidak ada data admin untuk ditampilkan.'}
               </div>
             }
-          />
-        )}
+         />
       </div>
 
-      {/* Modals */}
       <AddAdminModal
         isOpen={isAddModalOpen}
         onClose={closeAddModal}
-        setAdmins={setAdmins}
+        onAdminAdded={handleAdminAdded}
       />
       <EditAdminModal
         isOpen={isEditModalOpen}
         onClose={closeEditModal}
         admin={selectedAdmin}
-        setAdmins={setAdmins}
+        onAdminUpdated={handleAdminUpdated}
       />
       <ViewAdminModal
         isOpen={isViewModalOpen}
@@ -260,10 +243,13 @@ const Admin = () => {
         isOpen={isDeleteModalOpen}
         onClose={closeDeleteModal}
         admin={selectedAdmin}
-        setAdmins={setAdmins}
+        onAdminDeleted={handleAdminDeleted}
       />
     </div>
   );
 };
+
+Admin.propTypes = {};
+
 
 export default Admin;
