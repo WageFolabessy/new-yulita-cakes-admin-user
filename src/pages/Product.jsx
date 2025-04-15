@@ -1,110 +1,69 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
 import DataTable from "react-data-table-component";
 import { FaPlus, FaEye, FaEdit, FaTrash } from "react-icons/fa";
+import { toast } from "react-toastify";
+
 import AddProductModal from "../components/Product/AddProductModal";
 import EditProductModal from "../components/Product/EditProductModal";
 import ViewProductModal from "../components/Product/ViewProductModal";
 import DeleteProductModal from "../components/Product/DeleteProductModal";
+import FilterComponent from "../components/Product/FilterComponent";
+
 import { AppContext } from "../context/AppContext";
 import customStyles from "../mod/tableSyles";
 
-const ProductFilterComponent = ({ filterText, onFilter, onClear }) => (
-  <div className="flex flex-col md:flex-row md:flex-wrap items-center justify-start gap-3 w-full">
-    <input
-      id="search"
-      type="text"
-      placeholder="Cari Produk..."
-      aria-label="Search Input"
-      value={filterText}
-      onChange={onFilter}
-      className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all w-full md:w-80 lg:w-96"
-    />
-    <button
-      onClick={onClear}
-      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 w-full md:w-auto"
-    >
-      Reset Pencarian
-    </button>
-  </div>
-);
-
 const Product = () => {
-  useEffect(() => {
-    document.title = "Dasbor - Produk";
-  }, []);
-
-  // State untuk menyimpan data produk yang diambil dari API
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
-  const [errorProducts, setErrorProducts] = useState(null);
-
+  const [fetchError, setFetchError] = useState(null);
   const { authFetch } = useContext(AppContext);
 
-  useEffect(() => {
-    authFetch("/api/admin/product")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Error fetching products");
-        }
-        return response.json();
-      })
-      .then((data) => {
-        setProducts(data);
-        setLoadingProducts(false);
-      })
-      .catch((error) => {
-        console.error("Error fetching products:", error);
-        setErrorProducts(error);
-        setLoadingProducts(false);
-      });
-  }, []);
-
-  // Filter state
-  const [filterText, setFilterText] = useState("");
-  const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
-
-  // Filter produk berdasarkan nama produk atau nama kategori
-  const filteredProducts = products.filter(
-    (product) =>
-      (product.product_name &&
-        product.product_name
-          .toLowerCase()
-          .includes(filterText.toLowerCase())) ||
-      (product.category &&
-        product.category.category_name &&
-        product.category.category_name
-          .toLowerCase()
-          .includes(filterText.toLowerCase()))
-  );
-
-  const subHeaderComponent = useMemo(() => {
-    const handleClear = () => {
-      if (filterText) {
-        setResetPaginationToggle(!resetPaginationToggle);
-        setFilterText("");
-      }
-    };
-
-    return (
-      <ProductFilterComponent
-        onFilter={(e) => setFilterText(e.target.value)}
-        onClear={handleClear}
-        filterText={filterText}
-      />
-    );
-  }, [filterText, resetPaginationToggle]);
-
-  // State untuk modals dan produk yang dipilih
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // Event handlers untuk membuka/menutup modal
+  const [filterText, setFilterText] = useState("");
+  const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
+
+  const fetchProducts = useCallback(async () => {
+    setLoadingProducts(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/product");
+
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data produk." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* abaikan */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+
+      const result = await response.json();
+      setProducts(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error(`Error: ${error.message}`);
+        setFetchError(error.message);
+      }
+      setProducts([]);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    document.title = "Yulita Cakes | Produk";
+    fetchProducts();
+  }, [fetchProducts]);
+
   const openAddModal = () => setIsAddModalOpen(true);
   const closeAddModal = () => setIsAddModalOpen(false);
-
   const openEditModal = (product) => {
     setSelectedProduct(product);
     setIsEditModalOpen(true);
@@ -113,7 +72,6 @@ const Product = () => {
     setSelectedProduct(null);
     setIsEditModalOpen(false);
   };
-
   const openViewModal = (product) => {
     setSelectedProduct(product);
     setIsViewModalOpen(true);
@@ -122,7 +80,6 @@ const Product = () => {
     setSelectedProduct(null);
     setIsViewModalOpen(false);
   };
-
   const openDeleteModal = (product) => {
     setSelectedProduct(product);
     setIsDeleteModalOpen(true);
@@ -132,203 +89,228 @@ const Product = () => {
     setIsDeleteModalOpen(false);
   };
 
-  // Definisi kolom DataTable
-  const columns = [
-    {
-      name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
-      width: "60px",
-      center: true,
-    },
-    {
-      name: "Nama Produk",
-      selector: (row) => row.product_name,
-      sortable: true,
-      wrap: true,
-      minWidth: "200px",
-    },
-    {
-      name: "Kategori",
-      selector: (row) => row.category?.category_name || "",
-      sortable: true,
-      wrap: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Harga Original",
-      selector: (row) => row.original_price,
-      sortable: true,
-      cell: (row) =>
-        `Rp ${Number(row.original_price || 0).toLocaleString("id-ID")}`,
-      right: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Harga Diskon",
-      selector: (row) => row.sale_price,
-      sortable: true,
-      cell: (row) =>
-        `Rp ${Number(row.sale_price || 0).toLocaleString("id-ID")}`,
-      right: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Stok",
-      selector: (row) => row.stock,
-      sortable: true,
-      center: true,
-      minWidth: "100px",
-    },
-    {
-      name: "Aksi",
-      cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
-          <button
-            onClick={() => openViewModal(row)}
-            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-            title="Lihat Detail"
-          >
-            <FaEye className="text-lg" />
-          </button>
-          <button
-            onClick={() => openEditModal(row)}
-            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="Edit"
-          >
-            <FaEdit className="text-lg" />
-          </button>
-          <button
-            onClick={() => openDeleteModal(row)}
-            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            title="Hapus"
-          >
-            <FaTrash className="text-lg" />
-          </button>
-        </div>
+  const handleProductAdded = useCallback((newProduct) => {
+    setProducts((prev) => [newProduct, ...prev]);
+    toast.success("Produk baru berhasil ditambahkan.");
+  }, []);
+
+  const handleProductUpdated = useCallback((updatedProduct) => {
+    setProducts((prev) =>
+      prev.map((prod) =>
+        prod.id === updatedProduct.id ? updatedProduct : prod
+      )
+    );
+    toast.success("Produk berhasil diperbarui.");
+  }, []);
+
+  const handleProductDeleted = useCallback((deletedProductId) => {
+    setProducts((prev) => prev.filter((prod) => prod.id !== deletedProductId));
+    toast.success("Produk berhasil dihapus.");
+  }, []);
+
+  const filteredProducts = useMemo(
+    () =>
+      products.filter(
+        (product) =>
+          (product.product_name &&
+            product.product_name
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (product.category?.category_name &&
+            product.category.category_name
+              .toLowerCase()
+              .includes(filterText.toLowerCase()))
       ),
-      ignoreRowClick: true,
-      allowOverflow: true,
-      button: true,
-      minWidth: "150px",
-    },
-  ];
+    [products, filterText]
+  );
 
-  // // Custom styles untuk DataTable (opsional)
-  // const customStyles = {
-  //   table: {
-  //     style: {
-  //       backgroundColor: "#fff",
-  //       border: "5px solid #e5e7eb",
-  //       borderRadius: "0.5rem",
-  //       overflow: "hidden",
-  //     },
-  //   },
-  //   header: {
-  //     style: {
-  //       fontSize: "1.25rem",
-  //       fontWeight: "bold",
-  //       padding: "1rem",
-  //       backgroundColor: "#f8fafc",
-  //       borderBottom: "2px solid #e5e7eb",
-  //     },
-  //   },
-  //   headRow: {
-  //     style: {
-  //       // backgroundColor: "#f3f4f6",
-  //       backgroundColor: "#fce7f3", // Soft pink background
+  const subHeaderComponent = useMemo(() => {
+    const handleClear = () => {
+      if (filterText) {
+        setResetPaginationToggle(!resetPaginationToggle);
+        setFilterText("");
+      }
+    };
+    return (
+      <FilterComponent
+        onFilter={(e) => setFilterText(e.target.value)}
+        onClear={handleClear}
+        filterText={filterText}
+      />
+    );
+  }, [filterText, resetPaginationToggle]);
 
-  //       borderBottomWidth: "2px",
-  //     },
-  //   },
-  //   headCells: {
-  //     style: {
-  //       fontSize: "0.875rem",
-  //       fontWeight: "600",
-  //       padding: "0.75rem 1rem",
-  //       color: "#374151",
-  //     },
-  //   },
-  //   cells: {
-  //     style: {
-  //       fontSize: "0.875rem",
-  //       padding: "0.75rem 1rem",
-  //       color: "#4b5563",
-  //     },
-  //   },
-  //   pagination: {
-  //     style: {
-  //       borderTop: "1px solid #e5e7eb",
-  //       padding: "1rem",
-  //     },
-  //   },
-  //   responsiveWrapper: {
-  //     style: {
-  //       borderRadius: "0.5rem",
-  //     },
-  //   },
-  // };
+  const formatRupiah = (number) => {
+    if (number === null || number === undefined) return "-";
+    return `Rp ${Number(number).toLocaleString("id-ID")}`;
+  };
+
+  const columns = useMemo(
+    () => [
+      {
+        name: "No",
+        selector: (row, index) => index + 1,
+        sortable: false,
+        width: "60px",
+        center: true,
+      },
+      {
+        name: "Gambar",
+        cell: (row) => {
+          const primaryImage = row.images?.find((img) => img.is_primary);
+          const imageUrl =
+            primaryImage?.image_url || row.images?.[0]?.image_url;
+
+          return imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={row.product_name}
+              className="w-12 h-12 sm:w-16 sm:h-16 object-cover rounded-md border border-gray-200 shadow-sm my-1"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center bg-gray-100 rounded-md text-gray-400 text-xs">
+              No Img
+            </div>
+          );
+        },
+        width: "120px",
+        center: true,
+      },
+      {
+        name: "Nama Produk",
+        selector: (row) => row.product_name,
+        sortable: true,
+        wrap: true,
+        minWidth: "200px",
+      },
+      {
+        name: "Kategori",
+        selector: (row) => row.category?.category_name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "100px",
+      },
+      {
+        name: "Harga Original",
+        selector: (row) => row.original_price,
+        sortable: true,
+        cell: (row) => formatRupiah(row.original_price),
+        right: true,
+        minWidth: "200px",
+      },
+      {
+        name: "Harga Diskon",
+        selector: (row) => row.sale_price,
+        sortable: true,
+        cell: (row) => formatRupiah(row.sale_price),
+        right: true,
+        minWidth: "200px",
+      },
+      {
+        name: "Stok",
+        selector: (row) => row.stock,
+        sortable: true,
+        center: true,
+        width: "100px",
+      },
+      {
+        name: "Aksi",
+        cell: (row) => (
+          <div className="flex justify-center items-center gap-2">
+            <button
+              onClick={() => openViewModal(row)}
+              className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-md transition-colors"
+              title="Lihat Detail"
+            >
+              <FaEye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => openEditModal(row)}
+              className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+              title="Edit"
+            >
+              <FaEdit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => openDeleteModal(row)}
+              className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+              title="Hapus"
+            >
+              <FaTrash className="w-4 h-4" />
+            </button>
+          </div>
+        ),
+        ignoreRowClick: true,
+        allowOverflow: true,
+        button: true,
+        center: true,
+        minWidth: "120px",
+      },
+    ],
+    []
+  );
 
   return (
-    // <div className="container mx-auto">
-    <div className="container mx-auto px-4 py-8">
-      {/* Header & Tombol Tambah Produk */}
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-        <h1 className="text-3xl font-bold mb-4 sm:mb-0">Produk</h1>
-        <button onClick={openAddModal} className="tombol-pink">
-          <FaPlus className="mr-2 text-lg" />
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
+          Kelola Produk
+        </h1>
+        <button
+          onClick={openAddModal}
+          className="flex items-center bg-pink-600 text-white px-4 py-2 rounded-lg hover:bg-pink-700 transition-colors shadow-sm hover:shadow-lg text-sm font-medium"
+        >
+          <FaPlus className="mr-2" />
           Tambah Produk
         </button>
       </div>
 
-      {/* Tabel Produk Menggunakan DataTable */}
-      <div className=" rounded-xl overflow-x-auto">
-        {loadingProducts ? (
-          <p className="text-center text-gray-500">Memuat produk...</p>
-        ) : errorProducts ? (
-          <p className="text-center text-red-500">
-            Terjadi kesalahan saat mengambil produk.
-          </p>
-        ) : (
-          <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-            <DataTable
-              columns={columns}
-              data={filteredProducts}
-              pagination
-              paginationPerPage={10}
-              paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
-              paginationComponentOptions={{
-                rowsPerPageText: "Baris per halaman:",
-                rangeSeparatorText: "dari",
-              }}
-              paginationResetDefaultPage={resetPaginationToggle}
-              subHeader
-              subHeaderComponent={subHeaderComponent}
-              persistTableHead
-              responsive
-              highlightOnHover
-              striped
-              customStyles={customStyles}
-              noDataComponent={
-                <div className="p-4 text-center text-gray-500">
-                  Tidak ada produk.
-                </div>
-              }
-            />
-          </div>
-        )}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
+        <DataTable
+          columns={columns}
+          data={filteredProducts}
+          progressPending={loadingProducts}
+          progressComponent={
+            <div className="py-6 text-center text-gray-500">Memuat data...</div>
+          }
+          pagination
+          paginationPerPage={10}
+          paginationRowsPerPageOptions={[10, 15, 20, 50]}
+          paginationComponentOptions={{
+            rowsPerPageText: "Baris:",
+            rangeSeparatorText: "dari",
+          }}
+          paginationResetDefaultPage={resetPaginationToggle}
+          subHeader
+          subHeaderComponent={subHeaderComponent}
+          subHeaderAlign="left"
+          persistTableHead
+          responsive
+          highlightOnHover
+          striped
+          customStyles={customStyles}
+          noDataComponent={
+            <div className="p-6 text-center text-gray-500">
+              {fetchError
+                ? `Gagal memuat data: ${fetchError}`
+                : "Belum ada data produk."}
+            </div>
+          }
+        />
       </div>
 
       {/* Modals */}
       <AddProductModal
         isOpen={isAddModalOpen}
         onClose={closeAddModal}
-        setProducts={setProducts}
+        onProductAdded={handleProductAdded}
       />
       <EditProductModal
         isOpen={isEditModalOpen}
         onClose={closeEditModal}
         product={selectedProduct}
-        setProducts={setProducts}
+        onProductUpdated={handleProductUpdated}
       />
       <ViewProductModal
         isOpen={isViewModalOpen}
@@ -339,10 +321,12 @@ const Product = () => {
         isOpen={isDeleteModalOpen}
         onClose={closeDeleteModal}
         product={selectedProduct}
-        setProducts={setProducts}
+        onProductDeleted={handleProductDeleted}
       />
     </div>
   );
 };
+
+Product.propTypes = {};
 
 export default Product;

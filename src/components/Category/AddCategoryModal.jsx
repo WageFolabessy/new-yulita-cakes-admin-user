@@ -1,57 +1,66 @@
-// AddCategoryModal.js
-import { useState, useEffect, useContext } from 'react';
-import Modal from '../Modal';
-import { toast } from 'react-toastify';
+import { useState, useEffect, useContext, useCallback } from "react";
+import PropTypes from "prop-types";
+import Modal from "../Modal";
+import { toast } from "react-toastify";
 import { AppContext } from "../../context/AppContext";
 
-const AddCategoryModal = ({ isOpen, onClose, setCategories }) => {
-  const [formData, setFormData] = useState({
-    category_name: '',
-  });
-
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState('');
-  const [errors, setErrors] = useState({});
-
+const AddCategoryModal = ({ isOpen, onClose, onCategoryAdded }) => {
   const { authFetch } = useContext(AppContext);
+  const initialFormState = { category_name: "" };
+  const [formData, setFormData] = useState(initialFormState);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-
-    // Hapus error untuk field yang diubah
-    if (errors[e.target.name]) {
-      setErrors({
-        ...errors,
-        [e.target.name]: null,
-      });
-    }
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    } else {
+  useEffect(() => {
+    if (!isOpen) {
+      setFormData(initialFormState);
       setImageFile(null);
-      setImagePreview('');
+      if (imagePreview && imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(imagePreview);
+      }
+      setImagePreview("");
+      setErrors({});
+      setLoading(false);
     }
+  }, [isOpen, imagePreview]);
 
-    // Hapus error untuk field 'image'
-    if (errors.image) {
-      setErrors({
-        ...errors,
-        image: null,
-      });
-    }
-  };
+  const handleChange = useCallback(
+    (e) => {
+      const { name, value } = e.target;
+      setFormData((prev) => ({ ...prev, [name]: value }));
+      if (errors[name]) {
+        setErrors((prev) => ({ ...prev, [name]: null }));
+      }
+    },
+    [errors]
+  );
+
+  const handleImageChange = useCallback(
+    (e) => {
+      const file = e.target.files[0];
+      if (imagePreview && imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(imagePreview);
+      }
+
+      if (file) {
+        setImageFile(file);
+        setImagePreview(URL.createObjectURL(file));
+      } else {
+        setImageFile(null);
+        setImagePreview("");
+      }
+      if (errors.image) {
+        setErrors((prev) => ({ ...prev, image: null }));
+      }
+    },
+    [errors, imagePreview]
+  );
 
   useEffect(() => {
     return () => {
-      if (imagePreview) {
+      if (imagePreview && imagePreview.startsWith("blob:")) {
         URL.revokeObjectURL(imagePreview);
       }
     };
@@ -59,113 +68,151 @@ const AddCategoryModal = ({ isOpen, onClose, setCategories }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
 
-    // Siapkan data formulir
-    const data = new FormData();
-    data.append('category_name', formData.category_name);
+    setLoading(true);
+    setErrors({});
+
+    const dataToSend = new FormData();
+    dataToSend.append("category_name", formData.category_name);
     if (imageFile) {
-      data.append('image', imageFile);
+      dataToSend.append("image", imageFile);
     }
 
     try {
-      const response = await authFetch('http://127.0.0.1:8000/api/admin/category', {
-        method: 'POST',
-        body: data,
-        headers: {
-          'Accept': 'application/json',
-        },
+      const response = await authFetch("/admin/category", {
+        method: "POST",
+        body: dataToSend,
       });
 
       const result = await response.json();
 
-      if (response.ok) {
-        setCategories((prevCategories) => [...prevCategories, result.category]);
-        toast.success(result.message || 'Kategori berhasil ditambahkan.');
-        onClose();
-
-        // Reset formulir dan error
-        setFormData({ category_name: '' });
-        setImageFile(null);
-        setImagePreview('');
-        setErrors({});
-      } else if (response.status === 422) {
-        // Tangani error validasi
-        setErrors(result.errors || {});
+      if (!response.ok) {
+        if (response.status === 422) {
+          setErrors(result.errors || {});
+          toast.error(result.message || "Data tidak valid.");
+        } else {
+          toast.error(result.message || "Gagal menambahkan kategori.");
+        }
       } else {
-        toast.error(result.message || 'Terjadi kesalahan.');
+        toast.success(result.message || "Kategori berhasil ditambahkan.");
+        if (onCategoryAdded && result.category) {
+          onCategoryAdded(result.category);
+        }
+        onClose();
       }
     } catch (error) {
-      toast.error('Gagal menghubungi server.');
-      console.error('Error:', error);
+      console.error("Error adding category:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error("Gagal menghubungi server.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
+  if (!isOpen) return null;
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Tambah Kategori">
-      <form onSubmit={handleSubmit} className="space-y-6">
+    <Modal isOpen={isOpen} onClose={onClose} title="Tambah Kategori Baru">
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {/* Nama Kategori */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="add-cat-name"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Nama Kategori
           </label>
           <input
+            id="add-cat-name"
             type="text"
             name="category_name"
             value={formData.category_name}
             onChange={handleChange}
             required
-            placeholder="Misal: Jeans"
-            className={`w-full border ${
-              errors.category_name ? 'border-red-500' : 'border-gray-300'
-            } px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            disabled={loading}
+            placeholder="Misal: Kue Kering"
+            className={`w-full px-3 py-2 border rounded-md outline-none focus:ring-2 transition ${
+              errors.category_name
+                ? "border-red-500 focus:ring-red-300"
+                : "border-gray-300 focus:ring-pink-400 focus:border-pink-400"
+            } ${loading ? "bg-gray-100" : ""}`}
           />
-          {errors.category_name && (
-            <p className="text-red-500 text-sm mt-1">{errors.category_name[0]}</p>
-          )}
+          {errors.category_name &&
+            errors.category_name.map((error, index) => (
+              <p key={index} className="text-red-600 text-xs mt-1">
+                {error}
+              </p>
+            ))}
         </div>
+
         {/* Gambar */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="add-cat-image"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Gambar Kategori
           </label>
           <input
+            id="add-cat-image"
             type="file"
             accept="image/*"
             onChange={handleImageChange}
-            className="w-full"
+            disabled={loading}
+            className={`block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100 disabled:opacity-50 ${
+              loading ? "cursor-not-allowed" : ""
+            }`}
           />
-          {errors.image && (
-            <p className="text-red-500 text-sm mt-1">{errors.image[0]}</p>
-          )}
+          {errors.image &&
+            errors.image.map((error, index) => (
+              <p key={index} className="text-red-600 text-xs mt-1">
+                {error}
+              </p>
+            ))}
           {imagePreview && (
-            <div className="mt-4">
+            <div className="mt-3">
               <img
                 src={imagePreview}
-                alt="Pratinjau Gambar"
-                className="w-32 h-32 object-cover rounded-md shadow-md"
+                alt="Pratinjau"
+                className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-md border border-gray-200 shadow-sm"
               />
             </div>
           )}
         </div>
-        {/* Tombol */}
-        <div className="flex justify-end space-x-3 pt-4">
+
+        {/* Tombol Aksi */}
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
           <button
             type="button"
             onClick={onClose}
-            className="bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 transition duration-200"
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition disabled:opacity-50"
           >
             Batal
           </button>
           <button
             type="submit"
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200"
+            disabled={loading}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition ${
+              loading
+                ? "bg-pink-300 cursor-not-allowed"
+                : "bg-pink-600 hover:bg-pink-700"
+            }`}
           >
-            Simpan
+            {loading ? "Menyimpan..." : "Simpan Kategori"}
           </button>
         </div>
       </form>
     </Modal>
   );
+};
+
+AddCategoryModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onCategoryAdded: PropTypes.func.isRequired,
 };
 
 export default AddCategoryModal;

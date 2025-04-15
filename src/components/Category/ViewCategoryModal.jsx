@@ -1,96 +1,105 @@
-import { useState, useEffect, useContext } from "react";
-import Modal from "../Modal";
-import { toast } from "react-toastify";
-import { AppContext } from "../../context/AppContext";
-
+import PropTypes from "prop-types";
+import Modal from "../Modal"; // Pastikan path benar
 
 const ViewCategoryModal = ({ isOpen, onClose, category }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [categoryDetails, setCategoryDetails] = useState(null);
+  if (!isOpen || !category) {
+    return null;
+  }
 
-  const { authFetch } = useContext(AppContext);
-
-  useEffect(() => {
-    if (isOpen && category) {
-      fetchCategoryDetails();
-    }
-  }, [isOpen, category]);
-
-  const fetchCategoryDetails = async () => {
-    setIsLoading(true);
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
     try {
-      const response = await authFetch(
-        `http://127.0.0.1:8000/api/admin/category/${category.id}`,
-        {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-        }
-      );
-      const result = await response.json();
-
-      if (response.ok) {
-        setCategoryDetails(result);
-      } else {
-        toast.error(result.message || "Gagal mengambil data kategori.");
-        onClose();
-      }
+      return new Date(dateString).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     } catch (error) {
-      toast.error("Gagal menghubungi server.");
-      console.error("Error:", error);
-      onClose();
-    } finally {
-      setIsLoading(false);
+      console.error("Invalid date format:", dateString, error);
+      return "Tanggal tidak valid";
     }
   };
 
-  // Jika belum ada data detail, jangan render konten
-  if (!categoryDetails) return null;
-
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Detail Kategori">
-      <div className="space-y-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Detail Kategori: ${category.category_name || ""}`}
+    >
+      <div className="space-y-4 text-sm sm:text-base">
+        {/* ID */}
+        <div>
+          <p className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+            ID Kategori
+          </p>
+          <p className="text-gray-900">{category.id ?? "-"}</p>
+        </div>
         {/* Nama Kategori */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Nama Kategori:
-          </label>
-          <p className="text-lg text-gray-900">
-            {categoryDetails.category_name}
+          <p className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+            Nama Kategori
           </p>
+          <p className="text-gray-900">{category.category_name ?? "-"}</p>
         </div>
-        {/* Slug */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Slug:
-          </label>
-          <p className="text-lg text-gray-900">{categoryDetails.slug}</p>
-        </div>
+
         {/* Gambar */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Gambar:
-          </label>
-          <img
-            src={`/storage/${categoryDetails.image}`}
-            alt={categoryDetails.category_name}
-            className="w-48 h-48 object-cover rounded-md shadow-md"
-          />
+          <p className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+            Gambar
+          </p>
+          {category.image_url ? (
+            <img
+              src={category.image_url} // Gunakan URL dari resource
+              alt={category.category_name || "Gambar Kategori"}
+              className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-md border border-gray-200 shadow-sm"
+              loading="lazy"
+            />
+          ) : (
+            <p className="text-gray-500 italic">Tidak ada gambar</p>
+          )}
+        </div>
+        {/* Tanggal Dibuat */}
+        <div>
+          <p className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+            Tanggal Dibuat
+          </p>
+          <p className="text-gray-900">{formatDate(category.created_at)}</p>
+        </div>
+        {/* Tanggal Diperbarui */}
+        <div>
+          <p className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+            Tanggal Diperbarui
+          </p>
+          <p className="text-gray-900">{formatDate(category.updated_at)}</p>
         </div>
       </div>
       {/* Tombol Tutup */}
-      <div className="flex justify-end mt-6">
+      <div className="flex justify-end pt-4 mt-4 border-t border-gray-200">
         <button
           type="button"
           onClick={onClose}
-          className="px-5 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition duration-200"
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition"
         >
           Tutup
         </button>
       </div>
     </Modal>
   );
+};
+
+ViewCategoryModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  category: PropTypes.shape({
+    id: PropTypes.number,
+    category_name: PropTypes.string,
+    image: PropTypes.string,
+    image_url: PropTypes.string,
+    created_at: PropTypes.string,
+    updated_at: PropTypes.string,
+  }),
 };
 
 export default ViewCategoryModal;
