@@ -37,9 +37,7 @@ const App = () => {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-100">
-      {" "}
-      {/* Ganti background jika perlu */}
+    <div className="min-h-screen bg-gray-100">
       <ToastContainer
         autoClose={3000}
         position="top-right"
@@ -52,39 +50,31 @@ const App = () => {
         pauseOnHover
         theme="colored"
       />
+
       {token ? (
-        <>
+        <div className="relative min-h-screen md:flex">
+          <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+
           <Navbar setIsSidebarOpen={setIsSidebarOpen} />
-          <div className="flex flex-1 pt-16 overflow-hidden">
-            <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
-            <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-gray-50">
-              <Routes>
-                <Route path="/dashboard" element={<Dashboard />} />
 
-                <Route path="/categories" element={<Category />} />
-                <Route path="/products" element={<Product />} />
-                <Route path="/orders" element={<Order />} />
-                <Route path="/payments" element={<Payment />} />
-                <Route path="/shipments" element={<Shipment />} />
-                <Route path="/users" element={<User />} />
-                <Route path="/reviews" element={<Review />} />
-                <Route path="/report" element={<SalesReport />} />
-                <Route path="/admins" element={<Admin />} />
-
-                <Route path="/profile" element={<Profile />} />
-
-                <Route
-                  path="/"
-                  element={<Navigate to="/dashboard" replace />}
-                />
-                <Route
-                  path="*"
-                  element={<Navigate to="/dashboard" replace />}
-                />
-              </Routes>
-            </main>
-          </div>
-        </>
+          <main className="flex-1 mt-16 overflow-y-auto bg-gray-50 p-4 sm:p-6 lg:p-8">
+            <Routes>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/categories" element={<Category />} />
+              <Route path="/products" element={<Product />} />
+              <Route path="/orders" element={<Order />} />
+              <Route path="/payments" element={<Payment />} />
+              <Route path="/shipments" element={<Shipment />} />
+              <Route path="/users" element={<User />} />
+              <Route path="/reviews" element={<Review />} />
+              <Route path="/report" element={<SalesReport />} />
+              <Route path="/admins" element={<Admin />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </main>
+        </div>
       ) : (
         <Routes>
           <Route path="/login" element={<Login />} />
