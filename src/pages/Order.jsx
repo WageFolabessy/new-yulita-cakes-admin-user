@@ -1,135 +1,121 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
 import DataTable from "react-data-table-component";
 import { FaEye } from "react-icons/fa";
-import OrderDetailModal from "../components/Order/OrderDetailModal";
-import { AppContext } from "../context/AppContext";
 import { toast } from "react-toastify";
+
+import OrderDetailModal from "../components/Order/OrderDetailModal";
+import FilterComponent from "../components/Order/FilterComponent";
+import StatusBadge from "@/components/Order/StatusBadge";
+
+import { AppContext } from "../context/AppContext";
 import customStyles from "../mod/tableSyles";
 
-// Komponen Filter (pencarian dan reset)
-const FilterComponent = ({ filterText, onFilter, onClear }) => (
-  // <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-  <div className="flex flex-col md:flex-row md:flex-wrap items-center justify-start gap-3 w-full">
-    <input
-      id="search"
-      type="text"
-      placeholder="Cari Pesanan..."
-      aria-label="Search Input"
-      value={filterText}
-      onChange={onFilter}
-      className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all w-full sm:w-72"
-    />
-    <button
-      onClick={onClear}
-      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 w-full sm:w-auto"
-    >
-      Reset Pencarian
-    </button>
-  </div>
-);
-
 const Order = () => {
-  useEffect(() => {
-    document.title = "Dasbor - Pesanan";
-  }, []);
-
-  // State untuk data pesanan
+  const { authFetch } = useContext(AppContext);
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
-  const [errorOrders, setErrorOrders] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
 
-  const { authFetch } = useContext(AppContext);
-
-  // Ambil data pesanan dari API
-  useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        const response = await authFetch(
-          "http://127.0.0.1:8000/api/admin/orders",
-          {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-        if (!response.ok) throw new Error("Network response was not ok");
-        const data = await response.json();
-        setOrders(data);
-      } catch (error) {
-        console.error("Error fetching orders:", error);
-        setErrorOrders(error);
-      } finally {
-        setLoadingOrders(false);
-      }
-    };
-
-    fetchOrders();
-  }, [authFetch]);
-
-  // Modal detail pesanan
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  const openDetailModal = (order) => {
-    setSelectedOrder(order);
-    setIsDetailModalOpen(true);
-  };
-
-  const closeDetailModal = () => {
-    setSelectedOrder(null);
-    setIsDetailModalOpen(false);
-  };
-
-  // Fungsi untuk mengupdate status pesanan menggunakan fetch
-  const updateOrderStatus = async (orderId, newStatus) => {
-    try {
-      const response = await authFetch(
-        `http://127.0.0.1:8000/api/admin/orders/${orderId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({ status: newStatus }),
-        }
-      );
-
-      // Parsing respons JSON
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Gagal memperbarui status pesanan.");
-      }
-
-      // Perbarui state orders hanya untuk properti status saja agar properti lain tidak hilang
-      setOrders((prevOrders) =>
-        prevOrders.map((order) =>
-          order.id === orderId ? { ...order, status: newStatus } : order
-        )
-      );
-
-      // Tampilkan toast dengan pesan dari API
-      toast.success(data.message);
-    } catch (error) {
-      console.error("Gagal memperbarui status pesanan:", error);
-      alert("Terjadi kesalahan saat memperbarui status pesanan.");
-    }
-  };
-
-  // State untuk pencarian
   const [filterText, setFilterText] = useState("");
   const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
 
-  // Filter data pesanan berdasarkan nomor pesanan atau nama pelanggan
-  const filteredOrders = orders.filter(
-    (order) =>
-      order.order_number.toLowerCase().includes(filterText.toLowerCase()) ||
-      order.user_name.toLowerCase().includes(filterText.toLowerCase())
+  const fetchOrders = useCallback(async () => {
+    setLoadingOrders(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/orders"); // Path relatif
+
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data pesanan." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+      const result = await response.json();
+      setOrders(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error(`Error: ${error.message}`);
+        setFetchError(error.message);
+      }
+      setOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    document.title = "Yulita Cakes | Pesanan";
+    fetchOrders();
+  }, [fetchOrders]);
+
+  const openDetailModal = useCallback((order) => {
+    setSelectedOrder(order);
+    setIsDetailModalOpen(true);
+  }, []);
+
+  const closeDetailModal = useCallback(() => {
+    setSelectedOrder(null);
+    setIsDetailModalOpen(false);
+  }, []);
+
+  const handleUpdateOrderStatus = useCallback(
+    async (orderId, newStatus) => {
+      let success = false;
+      try {
+        const response = await authFetch(`/admin/orders/${orderId}`, {
+          method: "PUT",
+          body: JSON.stringify({ status: newStatus }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          toast.error(result.message || "Gagal memperbarui status pesanan.");
+        } else {
+          toast.success(
+            result.message || "Status pesanan berhasil diperbarui."
+          );
+          setOrders((prevOrders) =>
+            prevOrders.map((order) =>
+              order.id === orderId ? result.order : order
+            )
+          );
+          success = true;
+        }
+      } catch (error) {
+        console.error("Gagal memperbarui status pesanan:", error);
+        if (error.message !== "Unauthorized") {
+          toast.error("Terjadi kesalahan jaringan saat update status.");
+        }
+      }
+      return success;
+    },
+    [authFetch]
   );
 
-  // Sub header untuk DataTable (filter pencarian)
+  const filteredOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          (order.order_number &&
+            order.order_number
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (order.user?.name &&
+            order.user.name.toLowerCase().includes(filterText.toLowerCase()))
+      ),
+    [orders, filterText]
+  );
+
+  // -- Sub Header (Filter) --
   const subHeaderComponent = useMemo(() => {
     const handleClear = () => {
       if (filterText) {
@@ -137,7 +123,6 @@ const Order = () => {
         setFilterText("");
       }
     };
-
     return (
       <FilterComponent
         onFilter={(e) => setFilterText(e.target.value)}
@@ -147,126 +132,171 @@ const Order = () => {
     );
   }, [filterText, resetPaginationToggle]);
 
-  // Kolom untuk DataTable
-  const columns = [
-    {
-      name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
-      width: "60px",
-      center: true,
-    },
-    {
-      name: "No. Pesanan",
-      selector: (row) => row.order_number,
-      sortable: true,
-      wrap: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Nama",
-      selector: (row) => row.user.name,
-      sortable: true,
-      wrap: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Tanggal",
-      selector: (row) => {
-        const date = new Date(row.created_at);
-        return date.toLocaleString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
+  // -- Helper Format --
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
+    try {
+      return new Date(dateString).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "-";
+    }
+  };
+  const formatRupiah = (number) => {
+    if (number === null || number === undefined || number === "") return "-";
+    const num = Number(number);
+    if (isNaN(num)) return "-";
+    return `Rp ${num.toLocaleString("id-ID")}`;
+  };
+
+  // -- DataTable Columns --
+  const columns = useMemo(
+    () => [
+      {
+        name: "No",
+        selector: (row, index) => index + 1,
+        sortable: false,
+        width: "60px",
+        center: true,
       },
-      sortable: true,
-      wrap: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Total",
-      cell: (row) => <div>Rp {row.total_amount.toLocaleString("id-ID")}</div>,
-      sortable: true,
-      wrap: true,
-      minWidth: "120px",
-    },
-    {
-      name: "Status",
-      selector: (row) => row.status,
-      sortable: true,
-      cell: (row) => <span className="capitalize">{row.status}</span>,
-      wrap: true,
-      minWidth: "100px",
-    },
-    {
-      name: "Detil",
-      cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
+      {
+        name: "No. Pesanan",
+        selector: (row) => row.order_number,
+        sortable: true,
+        wrap: true,
+        minWidth: "160px",
+      },
+      {
+        name: "Nama Pelanggan",
+        selector: (row) => row.user?.name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "150px",
+      },
+      {
+        name: "Tanggal",
+        selector: (row) => row.order_date || row.created_at,
+        sortable: true,
+        cell: (row) => formatDate(row.order_date || row.created_at),
+        minWidth: "150px",
+        wrap: true,
+        hide: "md",
+      },
+      {
+        name: "Total",
+        selector: (row) => row.total_amount,
+        sortable: true,
+        cell: (row) => formatRupiah(row.total_amount),
+        right: true,
+        minWidth: "130px",
+      },
+      {
+        name: "Order",
+        sortable: true,
+        center: true,
+        minWidth: "110px",
+        selector: (row) => row.status,
+        cell: (row) => <StatusBadge status={row.status_label || row.status} />,
+      },
+      {
+        name: "Pembayaran",
+        sortable: true,
+        center: true,
+        minWidth: "150px",
+        selector: (row) => row.payment_status,
+        cell: (row) => (
+          <StatusBadge
+            status={row.payment_status_label || row.payment_status}
+          />
+        ),
+      },
+      {
+        name: "Pengiriman",
+        sortable: true,
+        center: true,
+        minWidth: "150px",
+        selector: (row) => row.shipment_status,
+        cell: (row) => (
+          <StatusBadge
+            status={row.shipment_status_label || row.shipment_status}
+          />
+        ),
+      },
+      {
+        name: "Aksi",
+        center: true,
+        width: "70px",
+        cell: (row) => (
           <button
             onClick={() => openDetailModal(row)}
-            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
             title="Lihat Detail"
           >
-            <FaEye className="text-lg" />
+            <FaEye className="w-4 h-4" />
           </button>
-        </div>
-      ),
-      ignoreRowClick: true,
-      allowOverflow: true,
-      button: true,
-      center: true,
-      minWidth: "100px",
-    },
-  ];
+        ),
+      },
+    ],
+    [openDetailModal]
+  );
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Pesanan</h1>
-      {loadingOrders ? (
-        <p className="text-center text-gray-500">Memuat pesanan...</p>
-      ) : errorOrders ? (
-        <p className="text-center text-red-500">
-          Terjadi kesalahan saat mengambil pesanan.
-        </p>
-      ) : (
-        <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-          <DataTable
-            columns={columns}
-            data={filteredOrders}
-            pagination
-            paginationPerPage={10}
-            paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
-            paginationComponentOptions={{
-              rowsPerPageText: "Baris per halaman:",
-              rangeSeparatorText: "dari",
-            }}
-            responsive
-            highlightOnHover
-            striped
-            customStyles={customStyles}
-            subHeader
-            subHeaderComponent={subHeaderComponent}
-            noDataComponent={
-              <div className="p-4 text-center text-gray-500">
-                Tidak ada pesanan.
-              </div>
-            }
-          />
-        </div>
-      )}
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
+          Daftar Pesanan
+        </h1>
+      </div>
 
-      {/* Modal Detail Pesanan */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
+        <DataTable
+          columns={columns}
+          data={filteredOrders}
+          progressPending={loadingOrders}
+          progressComponent={
+            <div className="py-6 text-center text-gray-500">Memuat data...</div>
+          }
+          pagination
+          paginationPerPage={10}
+          paginationRowsPerPageOptions={[10, 15, 20, 50]}
+          paginationComponentOptions={{
+            rowsPerPageText: "Baris:",
+            rangeSeparatorText: "dari",
+          }}
+          paginationResetDefaultPage={resetPaginationToggle}
+          subHeader
+          subHeaderComponent={subHeaderComponent}
+          subHeaderAlign="left"
+          persistTableHead
+          responsive // Penting untuk mobile
+          highlightOnHover
+          striped
+          customStyles={customStyles}
+          noDataComponent={
+            <div className="p-6 text-center text-gray-500">
+              {fetchError
+                ? `Gagal memuat data: ${fetchError}`
+                : "Belum ada data pesanan."}
+            </div>
+          }
+        />
+      </div>
+
       <OrderDetailModal
         isOpen={isDetailModalOpen}
         onClose={closeDetailModal}
         order={selectedOrder}
-        updateOrderStatus={updateOrderStatus}
+        onUpdateStatus={handleUpdateOrderStatus}
       />
     </div>
   );
 };
+
+Order.propTypes = {};
 
 export default Order;
