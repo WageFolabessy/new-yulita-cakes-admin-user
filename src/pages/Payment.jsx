@@ -1,132 +1,91 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
 import DataTable from "react-data-table-component";
 import { FaEye } from "react-icons/fa";
-import PaymentDetailModal from "../components/Payment/PaymentDetailModal";
-import { AppContext } from "../context/AppContext";
 import { toast } from "react-toastify";
-import customStyles from "../mod/tableSyles";
 
-// Komponen Filter untuk pencarian dan reset
-const FilterComponent = ({ filterText, onFilter, onClear }) => (
-  <div className="flex flex-col md:flex-row md:flex-wrap items-center justify-start gap-3 w-full">
-    <input
-      id="search"
-      type="text"
-      placeholder="Cari Pembayaran..."
-      aria-label="Search Input"
-      value={filterText}
-      onChange={onFilter}
-      className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all w-full sm:w-72"
-    />
-    <button
-      onClick={onClear}
-      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 w-full sm:w-auto"
-    >
-      Reset Pencarian
-    </button>
-  </div>
-);
+import PaymentDetailModal from "../components/Payment/PaymentDetailModal";
+import FilterComponent from "../components/Payment/FilterComponent";
+import StatusBadge from "@/components/Payment/StatusBadge";
+
+import { AppContext } from "../context/AppContext";
+import customStyles from "../mod/tableSyles";
 
 const Payment = () => {
   const { authFetch } = useContext(AppContext);
   const [payments, setPayments] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(true);
-  const [errorPayments, setErrorPayments] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
 
-  useEffect(() => {
-    document.title = "Dasbor - Pembayaran";
-  }, []);
-
-  // Ambil data pembayaran dari backend.
-  useEffect(() => {
-    const fetchPayments = async () => {
-      try {
-        const response = await authFetch(
-          "http://127.0.0.1:8000/api/admin/payments",
-          {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-        if (!response.ok) throw new Error("Network response was not ok");
-        const data = await response.json();
-        // Ambil array data dari key payments
-        setPayments(Array.isArray(data.payments) ? data.payments : []);
-      } catch (error) {
-        console.error("Error fetching payments:", error);
-        setErrorPayments(error);
-      } finally {
-        setLoadingPayments(false);
-      }
-    };
-
-    fetchPayments();
-  }, [authFetch]);
-
-  // Modal detail pembayaran
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
-  const openDetailModal = (payment) => {
-    setSelectedPayment(payment);
-    setIsDetailModalOpen(true);
-  };
-
-  const closeDetailModal = () => {
-    setSelectedPayment(null);
-    setIsDetailModalOpen(false);
-  };
-
-  // Fungsi untuk mengupdate status pembayaran melalui backend
-  const updatePaymentStatus = async (paymentId, newStatus) => {
-    try {
-      const response = await authFetch(
-        `http://127.0.0.1:8000/api/admin/payments/${paymentId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({ status: newStatus }),
-        }
-      );
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || "Gagal memperbarui status pembayaran.");
-      }
-      // Perbarui status pada state payments secara optimistik
-      setPayments((prevPayments) =>
-        prevPayments.map((payment) =>
-          payment.id === paymentId ? { ...payment, status: newStatus } : payment
-        )
-      );
-      toast.success(data.message);
-    } catch (error) {
-      console.error("Gagal memperbarui status pembayaran:", error);
-      toast.error("Terjadi kesalahan saat memperbarui status pembayaran.");
-    }
-  };
-
-  // State untuk pencarian
   const [filterText, setFilterText] = useState("");
   const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
 
-  // Filter data pembayaran berdasarkan No. Pesanan atau Nama Pelanggan
-  const filteredPayments = payments.filter(
-    (payment) =>
-      payment.order?.order_number
-        .toLowerCase()
-        .includes(filterText.toLowerCase()) ||
-      (payment.order?.user?.name &&
-        payment.order.user.name
-          .toLowerCase()
-          .includes(filterText.toLowerCase()))
+  const fetchPayments = useCallback(async () => {
+    setLoadingPayments(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/payments"); // Path relatif
+
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data pembayaran." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+      const result = await response.json();
+      setPayments(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error(`Error: ${error.message}`);
+        setFetchError(error.message);
+      }
+      setPayments([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    document.title = "Yulita Cakes | Pembayaran";
+    fetchPayments();
+  }, [fetchPayments]);
+
+  const openDetailModal = useCallback((payment) => {
+    setSelectedPayment(payment);
+    setIsDetailModalOpen(true);
+  }, []);
+
+  const closeDetailModal = useCallback(() => {
+    setSelectedPayment(null);
+    setIsDetailModalOpen(false);
+  }, []);
+
+  const filteredPayments = useMemo(
+    () =>
+      payments.filter(
+        (payment) =>
+          (payment.order?.order_number &&
+            payment.order.order_number
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (payment.order?.user?.name &&
+            payment.order.user.name
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (payment.transaction_id &&
+            payment.transaction_id
+              .toLowerCase()
+              .includes(filterText.toLowerCase()))
+      ),
+    [payments, filterText]
   );
 
-  // Sub Header untuk DataTable (filter pencarian)
   const subHeaderComponent = useMemo(() => {
     const handleClear = () => {
       if (filterText) {
@@ -134,7 +93,6 @@ const Payment = () => {
         setFilterText("");
       }
     };
-
     return (
       <FilterComponent
         onFilter={(e) => setFilterText(e.target.value)}
@@ -144,136 +102,156 @@ const Payment = () => {
     );
   }, [filterText, resetPaginationToggle]);
 
-  // Kolom untuk DataTable
-  const columns = [
-    {
-      name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
-      width: "60px",
-      center: true,
-    },
-    {
-      name: "ID Pembayaran",
-      cell: (row) => <div>{row.id}</div>,
-      sortable: true,
-      minWidth: "180px",
-      center: true,
-    },
-    {
-      name: "No. Pesanan",
-      selector: (row) => row.order?.order_number,
-      sortable: true,
-      minWidth: "180px",
-    },
-    {
-      name: "Nama Pelanggan",
-      selector: (row) => row.order?.user?.name,
-      sortable: true,
-      minWidth: "180px",
-    },
-    {
-      name: "Tanggal",
-      selector: (row) => {
-        const date = new Date(row.created_at);
-        return date.toLocaleString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
+    try {
+      return new Date(dateString).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "-";
+    }
+  };
+  const formatRupiah = (number) => {
+    if (number === null || number === undefined || number === "") return "-";
+    const num = Number(number);
+    if (isNaN(num)) return "-";
+    return `Rp ${num.toLocaleString("id-ID")}`;
+  };
+
+  const columns = useMemo(
+    () => [
+      {
+        name: "No",
+        selector: (row, index) => index + 1,
+        sortable: false,
+        width: "50px",
+        center: true,
       },
-      sortable: true,
-      minWidth: "170px",
-    },
-    {
-      name: "Jumlah",
-      cell: (row) => (
-        <div>
-          Rp{" "}
-          {row.order?.total_amount
-            ? row.order.total_amount.toLocaleString("id-ID")
-            : row.amount.toLocaleString("id-ID")}
-        </div>
-      ),
-      sortable: true,
-      minWidth: "120px",
-    },
-    {
-      name: "Status",
-      selector: (row) => row.status,
-      sortable: true,
-      cell: (row) => <span className="capitalize">{row.status}</span>,
-      minWidth: "120px",
-    },
-    {
-      name: "Aksi",
-      cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
+      {
+        name: "ID Pembayaran",
+        selector: (row) => row.id,
+        sortable: true,
+        width: "170px",
+      },
+      {
+        name: "No. Pesanan",
+        selector: (row) => row.order?.order_number || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "160px",
+      },
+      {
+        name: "Pelanggan",
+        selector: (row) => row.order?.user?.name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "150px",
+      },
+      {
+        name: "Tanggal",
+        selector: (row) => row.created_at,
+        sortable: true,
+        cell: (row) => formatDate(row.created_at),
+        minWidth: "160px",
+        wrap: true,
+      },
+      {
+        name: "Jumlah",
+        selector: (row) => row.amount,
+        sortable: true,
+        cell: (row) => formatRupiah(row.amount),
+        right: true,
+        minWidth: "130px",
+      },
+      {
+        name: "Tipe",
+        selector: (row) => row.payment_type,
+        sortable: true,
+        minWidth: "100px",
+        wrap: true,
+      },
+      {
+        name: "Status",
+        sortable: true,
+        center: true,
+        minWidth: "110px",
+        selector: (row) => row.status,
+        cell: (row) => <StatusBadge status={row.status_label || row.status} />,
+      },
+      {
+        name: "Aksi",
+        center: true,
+        width: "70px",
+        cell: (row) => (
           <button
             onClick={() => openDetailModal(row)}
-            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
             title="Lihat Detail"
           >
-            <FaEye className="text-lg" />
+            <FaEye className="w-4 h-4" />
           </button>
-        </div>
-      ),
-      ignoreRowClick: true,
-      allowOverflow: true,
-      button: true,
-      center: true,
-      minWidth: "100px",
-    },
-  ];
+        ),
+      },
+    ],
+    [openDetailModal]
+  );
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Pembayaran</h1>
-      {loadingPayments ? (
-        <p className="text-center text-gray-500">Memuat pembayaran...</p>
-      ) : errorPayments ? (
-        <p className="text-center text-red-500">
-          Terjadi kesalahan saat mengambil pembayaran.
-        </p>
-      ) : (
-        <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-          <DataTable
-            columns={columns}
-            data={filteredPayments}
-            pagination
-            paginationPerPage={10}
-            paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
-            paginationComponentOptions={{
-              rowsPerPageText: "Baris per halaman:",
-              rangeSeparatorText: "dari",
-            }}
-            responsive
-            highlightOnHover
-            striped
-            customStyles={customStyles}
-            subHeader
-            subHeaderComponent={subHeaderComponent}
-            paginationResetDefaultPage={resetPaginationToggle}
-            noDataComponent={
-              <div className="p-4 text-center text-gray-500">
-                Tidak ada pembayaran.
-              </div>
-            }
-          />
-        </div>
-      )}
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
+          Daftar Pembayaran
+        </h1>
+      </div>
 
-      {/* Modal Detail Pembayaran */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
+        <DataTable
+          columns={columns}
+          data={filteredPayments}
+          progressPending={loadingPayments}
+          progressComponent={
+            <div className="py-6 text-center text-gray-500">Memuat data...</div>
+          }
+          pagination
+          paginationPerPage={10}
+          paginationRowsPerPageOptions={[10, 15, 20, 50]}
+          paginationComponentOptions={{
+            rowsPerPageText: "Baris:",
+            rangeSeparatorText: "dari",
+          }}
+          paginationResetDefaultPage={resetPaginationToggle}
+          subHeader
+          subHeaderComponent={subHeaderComponent}
+          subHeaderAlign="left"
+          persistTableHead
+          responsive
+          highlightOnHover
+          striped
+          customStyles={customStyles}
+          noDataComponent={
+            <div className="p-6 text-center text-gray-500">
+              {fetchError
+                ? `Gagal memuat data: ${fetchError}`
+                : "Belum ada data pembayaran."}
+            </div>
+          }
+        />
+      </div>
+
       <PaymentDetailModal
         isOpen={isDetailModalOpen}
         onClose={closeDetailModal}
         payment={selectedPayment}
-        updatePaymentStatus={updatePaymentStatus}
       />
     </div>
   );
 };
+
+Payment.propTypes = {};
 
 export default Payment;
