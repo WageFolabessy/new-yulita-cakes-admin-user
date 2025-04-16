@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
 import {
   LineChart,
   Line,
@@ -10,83 +10,135 @@ import {
 } from "recharts";
 import { AppContext } from "../../context/AppContext";
 import { toast } from "react-toastify";
-import { Card, CardContent } from "@/components/ui/card";
-
-
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const SalesChart = () => {
   const { authFetch } = useContext(AppContext);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchSalesChartData = async () => {
-      try {
-        const response = await authFetch("/api/admin/dashboard/sales_data", {
-          method: "GET",
-        });
-        if (!response.ok) throw new Error("Gagal mengambil data Grafik Penjualan");
-        const chartData = await response.json();
-        setData(chartData);
-      } catch (error) {
-        console.error(error);
-        toast.error("Terjadi kesalahan saat mengambil data Grafik Penjualan");
-      } finally {
-        setLoading(false);
+  const fetchSalesChartData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await authFetch("/admin/dashboard/sales_data");
+      if (!response.ok) {
+        let errorData = { message: "Gagal mengambil data grafik penjualan." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
       }
-    };
-
-    fetchSalesChartData();
+      const chartData = await response.json();
+      setData(Array.isArray(chartData) ? chartData : []);
+    } catch (err) {
+      console.error("Error fetching sales chart:", err);
+      if (err.message !== "Unauthorized") {
+        toast.error(`Error: ${err.message}`);
+        setError(err.message);
+      }
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
   }, [authFetch]);
 
-  if (loading)
+  useEffect(() => {
+    fetchSalesChartData();
+  }, [fetchSalesChartData]);
+
+  const formatRupiahAxis = useCallback(
+    (value) => `Rp${(value / 1000000).toFixed(0)} Jt`,
+    []
+  ); // Format Juta
+  const formatRupiahTooltip = useCallback(
+    (value) => `Rp ${Number(value).toLocaleString("id-ID")}`,
+    []
+  );
+
+  const renderContent = () => {
+    if (loading)
+      return (
+        <div className="p-4 text-center text-gray-500 h-80 flex items-center justify-center">
+          Memuat Grafik Penjualan...
+        </div>
+      );
+    if (error)
+      return (
+        <div className="p-4 text-center text-red-500 h-80 flex items-center justify-center">
+          Error: {error}
+        </div>
+      );
+    if (data.length === 0)
+      return (
+        <div className="p-4 text-center text-gray-500 h-80 flex items-center justify-center">
+          Tidak ada data penjualan untuk ditampilkan.
+        </div>
+      );
+
     return (
-      <div className="p-4 text-center text-gray-500">Memuat Grafik Penjualan...</div>
-    );
-
-  return (
-
-<div className="flex flex-col items-center space-y-6">
-  {/* Heading */}
-  <h2 className="text-2xl bg-pink-200 text-pink-800 shadow-lg px-6 py-3 rounded-xl font-bold tracking-wide">
-    Grafik Penjualan
-  </h2>
-
-  {/* Card Container */}
-  <Card className="w-full max-w-3xl bg-pink-100 shadow-xl rounded-2xl p-6 border border-gray-200">
-    <CardContent className="p-0">
       <ResponsiveContainer width="100%" height={320}>
         <LineChart
           data={data}
-          margin={{ top: 20, right: 30, bottom: 20, left: 40 }}
+          margin={{ top: 5, right: 20, bottom: 5, left: 30 }}
         >
-          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-          <XAxis dataKey="name" tick={{ fill: "#374151" }} />
+          {" "}
+          <CartesianGrid
+            stroke="#e2e8f0"
+            strokeDasharray="3 3"
+            vertical={false}
+          />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "#6b7280", fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+          />
           <YAxis
-            tick={{ fill: "#374151" }}
-            tickFormatter={(value) => `Rp ${value.toLocaleString("id-ID")}`}
+            tick={{ fill: "#6b7280", fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={formatRupiahAxis}
           />
           <Tooltip
-            contentStyle={{ backgroundColor: "white", borderRadius: "8px", border: "1px solid #ddd" }}
-            formatter={(value) => `Rp ${value.toLocaleString("id-ID")}`}
-            labelFormatter={(label) => `Month: ${label}`}
+            contentStyle={{
+              backgroundColor: "white",
+              borderRadius: "8px",
+              border: "1px solid #ddd",
+              fontSize: 12,
+            }}
+            formatter={formatRupiahTooltip}
+            labelFormatter={(label) => `Bulan: ${label}`}
           />
           <Line
             type="monotone"
-            dataKey="Sales"
-            stroke="#2563eb"
-            strokeWidth={3}
-            dot={{ r: 6, fill: "#2563eb" }}
-            activeDot={{ r: 8, fill: "#1e40af", stroke: "#1e40af", strokeWidth: 2 }}
+            dataKey="total"
+            name="Penjualan"
+            stroke="#ec4899"
+            strokeWidth={2.5}
+            dot={{ r: 4, fill: "#ec4899" }}
+            activeDot={{ r: 6, fill: "#db2777", stroke: "#db2777" }}
           />
         </LineChart>
       </ResponsiveContainer>
-    </CardContent>
-  </Card>
-</div>
+    );
+  };
 
-
+  return (
+    <Card className="shadow-lg border border-pink-200 rounded-xl">
+      <CardHeader>
+        <CardTitle className="text-lg font-semibold text-pink-800">
+          Grafik Penjualan (12 Bulan Terakhir)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 pt-0"> {renderContent()}</CardContent>
+    </Card>
   );
 };
+
+SalesChart.propTypes = {};
 
 export default SalesChart;

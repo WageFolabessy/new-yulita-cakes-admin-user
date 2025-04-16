@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -10,64 +10,126 @@ import {
 } from "recharts";
 import { AppContext } from "../../context/AppContext";
 import { toast } from "react-toastify";
-import { Card, CardContent } from "@/components/ui/card";
-
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const OrdersChart = () => {
   const { authFetch } = useContext(AppContext);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchOrdersChartData = async () => {
-      try {
-        const response = await authFetch("/api/admin/dashboard/orders_data", {
-          method: "GET",
-        });
-        if (!response.ok) throw new Error("Gagal mengambil data Statistik Pesanan");
-        const chartData = await response.json();
-        setData(chartData);
-      } catch (error) {
-        console.error(error);
-        toast.error("Terjadi kesalahan saat mengambil data Statistik Pesanan");
-      } finally {
-        setLoading(false);
+  const fetchOrdersChartData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await authFetch("/admin/dashboard/orders_data");
+      if (!response.ok) {
+        let errorData = { message: "Gagal mengambil data statistik pesanan." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
       }
-    };
-
-    fetchOrdersChartData();
+      const chartData = await response.json();
+      setData(Array.isArray(chartData) ? chartData : []);
+    } catch (err) {
+      console.error("Error fetching orders chart:", err);
+      if (err.message !== "Unauthorized") {
+        toast.error(`Error: ${err.message}`);
+        setError(err.message);
+      }
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
   }, [authFetch]);
 
-  if (loading) return <div className="p-4 text-center text-gray-500">Memuat Grafik...</div>;
+  useEffect(() => {
+    fetchOrdersChartData();
+  }, [fetchOrdersChartData]);
 
-  return (
+  const formatTooltip = useCallback((value) => `${value} Pesanan`, []);
 
-    <div className="flex flex-col items-center space-y-6">
-  {/* Heading */}
-  <h2 className="text-2xl bg-pink-200 text-pink-800 shadow-lg px-6 py-3 rounded-xl font-bold tracking-wide">
-    Statistik Pesanan
-  </h2>
+  const renderContent = () => {
+    if (loading)
+      return (
+        <div className="p-4 text-center text-gray-500 h-80 flex items-center justify-center">
+          Memuat Statistik Pesanan...
+        </div>
+      );
+    if (error)
+      return (
+        <div className="p-4 text-center text-red-500 h-80 flex items-center justify-center">
+          Error: {error}
+        </div>
+      );
+    if (data.length === 0)
+      return (
+        <div className="p-4 text-center text-gray-500 h-80 flex items-center justify-center">
+          Tidak ada data pesanan untuk ditampilkan.
+        </div>
+      );
 
-
-    <Card className="w-full max-w-3xl bg-pink-100 shadow-xl rounded-2xl p-6 border border-gray-200">
-    <CardContent className="p-0">
+    return (
       <ResponsiveContainer width="100%" height={320}>
-        <BarChart data={data} margin={{ top: 20, right: 30, bottom: 20, left: 40 }}>
-          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-          <XAxis dataKey="name" tick={{ fill: "#374151" }} />
-          <YAxis tick={{ fill: "#374151" }} />
-          <Tooltip
-            contentStyle={{ backgroundColor: "white", borderRadius: "8px", border: "1px solid #ddd" }}
-            formatter={(value) => `${value} orders`}
-            labelFormatter={(label) => `Month: ${label}`}
+        <BarChart
+          data={data}
+          margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
+        >
+          {" "}
+          <CartesianGrid
+            stroke="#e2e8f0"
+            strokeDasharray="3 3"
+            vertical={false}
           />
-          <Bar dataKey="Orders" fill="#10b981" barSize={40} radius={[8, 8, 0, 0]} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "#6b7280", fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fill: "#6b7280", fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            allowDecimals={false}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "white",
+              borderRadius: "8px",
+              border: "1px solid #ddd",
+              fontSize: 12,
+            }}
+            formatter={formatTooltip}
+            labelFormatter={(label) => `Bulan: ${label}`}
+          />
+          <Bar
+            dataKey="count"
+            name="Jumlah Pesanan"
+            fill="#f472b6"
+            barSize={30}
+            radius={[4, 4, 0, 0]}
+          />{" "}
         </BarChart>
       </ResponsiveContainer>
-    </CardContent>
-  </Card>
-  </div>
+    );
+  };
+
+  return (
+    <Card className="shadow-lg border border-pink-200 rounded-xl">
+      <CardHeader>
+        <CardTitle className="text-lg font-semibold text-pink-800">
+          Statistik Pesanan (12 Bulan Terakhir)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 pt-0"> {renderContent()}</CardContent>
+    </Card>
   );
 };
+
+OrdersChart.propTypes = {};
 
 export default OrdersChart;
