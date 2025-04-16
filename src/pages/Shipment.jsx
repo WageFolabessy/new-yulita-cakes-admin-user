@@ -1,137 +1,135 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
 import DataTable from "react-data-table-component";
-import { FaEye } from "react-icons/fa";
-import ShipmentDetailModal from "../components/Shipment/ShipmentDetailModal";
-import { AppContext } from "../context/AppContext";
+import { FaEdit } from "react-icons/fa";
 import { toast } from "react-toastify";
-import customStyles from "../mod/tableSyles";
 
-// Komponen Filter untuk pencarian dan reset
-const FilterComponent = ({ filterText, onFilter, onClear }) => (
-  <div className="flex flex-col md:flex-row md:flex-wrap items-center justify-start gap-3 w-full">
-    <input
-      id="search"
-      type="text"
-      placeholder="Cari Pengiriman..."
-      aria-label="Search Input"
-      value={filterText}
-      onChange={onFilter}
-      className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all w-full sm:w-72"
-    />
-    <button
-      onClick={onClear}
-      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 w-full sm:w-auto"
-    >
-      Reset Pencarian
-    </button>
-  </div>
-);
+import ShipmentDetailModal from "../components/Shipment/ShipmentDetailModal";
+import FilterComponent from "../components/Shipment/FilterComponent";
+import StatusBadge from "@/components/Shipment/StatusBadge";
+
+import { AppContext } from "../context/AppContext";
+import customStyles from "../mod/tableSyles";
 
 const Shipment = () => {
   const { authFetch } = useContext(AppContext);
   const [shipments, setShipments] = useState([]);
   const [loadingShipments, setLoadingShipments] = useState(true);
-  const [errorShipments, setErrorShipments] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
 
-  // Set judul halaman
-  useEffect(() => {
-    document.title = "Dasbor - Pengiriman";
-  }, []);
-
-  // Ambil data pengiriman dari backend
-  useEffect(() => {
-    const fetchShipments = async () => {
-      try {
-        const response = await authFetch(
-          "http://127.0.0.1:8000/api/admin/shipments",
-          {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-        if (!response.ok) throw new Error("Network response was not ok");
-        const data = await response.json();
-        // Ambil data dari key shipments
-        setShipments(Array.isArray(data.shipments) ? data.shipments : []);
-      } catch (error) {
-        console.error("Error fetching shipments:", error);
-        setErrorShipments(error);
-      } finally {
-        setLoadingShipments(false);
-      }
-    };
-
-    fetchShipments();
-  }, [authFetch]);
-
-  // Modal detail pengiriman
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState(null);
 
-  const openDetailModal = (shipment) => {
-    setSelectedShipment(shipment);
-    setIsDetailModalOpen(true);
-  };
-
-  const closeDetailModal = () => {
-    setSelectedShipment(null);
-    setIsDetailModalOpen(false);
-  };
-
-  // Fungsi untuk memperbarui data pengiriman melalui API
-  const updateShipment = async (shipmentId, updatedData) => {
-    try {
-      const response = await authFetch(
-        `http://127.0.0.1:8000/api/admin/shipments/${shipmentId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify(updatedData),
-        }
-      );
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || "Gagal memperbarui pengiriman.");
-      }
-      // Perbarui state secara optimistik
-      setShipments((prevShipments) =>
-        prevShipments.map((shipment) =>
-          shipment.id === shipmentId
-            ? { ...shipment, ...updatedData }
-            : shipment
-        )
-      );
-      toast.success(data.message);
-    } catch (error) {
-      console.error("Gagal memperbarui pengiriman:", error);
-      toast.error("Terjadi kesalahan saat memperbarui pengiriman.");
-    }
-  };
-
-  // State untuk filter pencarian
   const [filterText, setFilterText] = useState("");
   const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
 
-  // Filter data pengiriman berdasarkan nomor pesanan atau nama pelanggan
-  const filteredShipments = shipments.filter(
-    (shipment) =>
-      (shipment.order?.order_number || "")
-        .toLowerCase()
-        .includes(filterText.toLowerCase()) ||
-      (shipment.order?.user?.name || "")
-        .toLowerCase()
-        .includes(filterText.toLowerCase()) ||
-      (shipment.tracking_number || "")
-        .toLowerCase()
-        .includes(filterText.toLowerCase())
+  const fetchShipments = useCallback(async () => {
+    setLoadingShipments(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/shipments"); // Path relatif
+
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data pengiriman." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+      const result = await response.json();
+      setShipments(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching shipments:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error(`Error: ${error.message}`);
+        setFetchError(error.message);
+      }
+      setShipments([]);
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    document.title = "Yulita Cakes | Pengiriman";
+    fetchShipments();
+  }, [fetchShipments]);
+
+  const openDetailModal = useCallback((shipment) => {
+    setSelectedShipment(shipment);
+    setIsDetailModalOpen(true);
+  }, []);
+
+  const closeDetailModal = useCallback(() => {
+    setSelectedShipment(null);
+    setIsDetailModalOpen(false);
+  }, []);
+
+  const handleUpdateShipment = useCallback(
+    async (shipmentId, updatedData) => {
+      let success = false;
+      try {
+        const response = await authFetch(`/admin/shipments/${shipmentId}`, {
+          method: "PUT",
+          body: JSON.stringify(updatedData), // Kirim data yg diubah (status, tracking_number)
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 422 && result.errors) {
+            Object.values(result.errors)
+              .flat()
+              .forEach((msg) => toast.error(msg));
+            toast.error(result.message || "Data tidak valid.");
+          } else {
+            toast.error(result.message || "Gagal memperbarui pengiriman.");
+          }
+        } else {
+          toast.success(
+            result.message || "Data pengiriman berhasil diperbarui."
+          );
+          setShipments((prevShipments) =>
+            prevShipments.map((shipment) =>
+              shipment.id === shipmentId ? result.shipment : shipment
+            )
+          );
+          success = true;
+        }
+      } catch (error) {
+        console.error("Gagal memperbarui pengiriman:", error);
+        if (error.message !== "Unauthorized") {
+          toast.error("Terjadi kesalahan jaringan saat update.");
+        }
+      }
+      return success;
+    },
+    [authFetch]
   );
 
-  // Sub Header untuk DataTable (filter pencarian)
+  const filteredShipments = useMemo(
+    () =>
+      shipments.filter(
+        (shipment) =>
+          (shipment.order?.order_number &&
+            shipment.order.order_number
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (shipment.order?.user?.name &&
+            shipment.order.user.name
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (shipment.tracking_number &&
+            shipment.tracking_number
+              .toLowerCase()
+              .includes(filterText.toLowerCase())) ||
+          (shipment.courier &&
+            shipment.courier.toLowerCase().includes(filterText.toLowerCase())) // Tambah filter kurir
+      ),
+    [shipments, filterText]
+  );
+
   const subHeaderComponent = useMemo(() => {
     const handleClear = () => {
       if (filterText) {
@@ -139,7 +137,6 @@ const Shipment = () => {
         setFilterText("");
       }
     };
-
     return (
       <FilterComponent
         onFilter={(e) => setFilterText(e.target.value)}
@@ -149,117 +146,159 @@ const Shipment = () => {
     );
   }, [filterText, resetPaginationToggle]);
 
-  // Kolom untuk DataTable
-  const columns = [
-    {
-      name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
-      width: "60px",
-      center: true,
-    },
-    {
-      name: "No. Pesanan",
-      selector: (row) => row.order?.order_number,
-      sortable: true,
-      minWidth: "180px",
-    },
-    {
-      name: "Nama Pelanggan",
-      selector: (row) => row.order?.user?.name,
-      sortable: true,
-      minWidth: "180px",
-    },
-    {
-      name: "Kurir",
-      selector: (row) => row.courier,
-      sortable: true,
-      minWidth: "100px",
-    },
-    {
-      name: "Layanan",
-      selector: (row) => row.service,
-      sortable: true,
-      minWidth: "100px",
-    },
-    {
-      name: "Status",
-      selector: (row) => row.status,
-      sortable: true,
-      cell: (row) => <span className="capitalize">{row.status}</span>,
-      minWidth: "100px",
-    },
-    {
-      name: "No. Resi",
-      cell: (row) => <div>{row.tracking_number || "-"}</div>,
-      minWidth: "120px",
-    },
-    {
-      name: "Aksi",
-      cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
+    try {
+      return new Date(dateString).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "-";
+    }
+  };
+
+  const columns = useMemo(
+    () => [
+      {
+        name: "No",
+        selector: (row, index) => index + 1,
+        sortable: false,
+        width: "50px",
+        center: true,
+      },
+      {
+        name: "No. Pesanan",
+        selector: (row) => row.order?.order_number || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "160px",
+      },
+      {
+        name: "Pelanggan",
+        selector: (row) => row.order?.user?.name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "150px",
+        hide: "md",
+      },
+      {
+        name: "Tanggal Update",
+        selector: (row) => row.updated_at,
+        sortable: true,
+        cell: (row) => formatDate(row.updated_at),
+        minWidth: "160px",
+        wrap: true,
+      },
+      {
+        name: "Kurir/Layanan",
+        selector: (row) => row.courier,
+        sortable: true,
+        cell: (row) => `${row.courier || "-"} (${row.service || "-"})`,
+        minWidth: "170px",
+        wrap: true,
+      },
+      {
+        name: "No. Resi",
+        selector: (row) => row.tracking_number,
+        sortable: true,
+        cell: (row) => row.tracking_number || "-",
+        minWidth: "150px",
+        wrap: true,
+      },
+      {
+        name: "Pembayaran",
+        sortable: true,
+        center: true,
+        minWidth: "110px",
+        selector: (row) => row.payment_status,
+        cell: (row) => (
+          <StatusBadge
+            status={row.payment_status_label || row.payment_status}
+          />
+        ),
+      },
+      {
+        name: "Pengiriman",
+        sortable: true,
+        center: true,
+        minWidth: "110px",
+        selector: (row) => row.status,
+        cell: (row) => <StatusBadge status={row.status_label || row.status} />,
+      },
+      {
+        name: "Aksi",
+        center: true,
+        width: "70px",
+        cell: (row) => (
           <button
             onClick={() => openDetailModal(row)}
-            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-            title="Lihat Detail"
+            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+            title="Lihat Detail / Update"
           >
-            <FaEye className="text-lg" />
+            <FaEdit className="w-4 h-4" />
           </button>
-        </div>
-      ),
-      ignoreRowClick: true,
-      allowOverflow: true,
-      button: true,
-      center: true,
-      minWidth: "100px",
-    },
-  ];
+        ),
+      },
+    ],
+    [openDetailModal]
+  );
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Pengiriman</h1>
-      {loadingShipments ? (
-        <p className="text-center text-gray-500">Memuat pengiriman...</p>
-      ) : errorShipments ? (
-        <p className="text-center text-red-500">
-          Terjadi kesalahan saat mengambil pengiriman.
-        </p>
-      ) : (
-        <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-          <DataTable
-            columns={columns}
-            data={filteredShipments}
-            pagination
-            paginationPerPage={10}
-            paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
-            paginationComponentOptions={{
-              rowsPerPageText: "Baris per halaman:",
-              rangeSeparatorText: "dari",
-            }}
-            responsive
-            highlightOnHover
-            striped
-            customStyles={customStyles}
-            subHeader
-            subHeaderComponent={subHeaderComponent}
-            paginationResetDefaultPage={resetPaginationToggle}
-            noDataComponent={
-              <div className="p-4 text-center text-gray-500">
-                Tidak ada pengiriman.
-              </div>
-            }
-          />
-        </div>
-      )}
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
+          Data Pengiriman
+        </h1>
+      </div>
 
-      {/* Modal Detail Pengiriman */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
+        <DataTable
+          columns={columns}
+          data={filteredShipments}
+          progressPending={loadingShipments}
+          progressComponent={
+            <div className="py-6 text-center text-gray-500">Memuat data...</div>
+          }
+          pagination
+          paginationPerPage={10}
+          paginationRowsPerPageOptions={[10, 15, 20, 50]}
+          paginationComponentOptions={{
+            rowsPerPageText: "Baris:",
+            rangeSeparatorText: "dari",
+          }}
+          paginationResetDefaultPage={resetPaginationToggle}
+          subHeader
+          subHeaderComponent={subHeaderComponent}
+          subHeaderAlign="left"
+          persistTableHead
+          responsive
+          highlightOnHover
+          striped
+          customStyles={customStyles}
+          noDataComponent={
+            <div className="p-6 text-center text-gray-500">
+              {fetchError
+                ? `Gagal memuat data: ${fetchError}`
+                : "Belum ada data pengiriman."}
+            </div>
+          }
+        />
+      </div>
+
       <ShipmentDetailModal
         isOpen={isDetailModalOpen}
         onClose={closeDetailModal}
         shipment={selectedShipment}
-        updateShipment={updateShipment}
+        onUpdateShipment={handleUpdateShipment}
       />
     </div>
   );
 };
+
+Shipment.propTypes = {};
 
 export default Shipment;
