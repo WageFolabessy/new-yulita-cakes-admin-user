@@ -1,71 +1,88 @@
-import { useState, useEffect, useMemo, useContext } from "react";
+import { useState, useEffect, useMemo, useContext, useCallback } from "react";
+import PropTypes from "prop-types";
 import DataTable from "react-data-table-component";
-import { FaEye, FaTrash } from "react-icons/fa";
-import ReviewDetailModal from "../components/Review/ReviewDetailModal";
-import { AppContext } from "../context/AppContext";
+import { FaEye } from "react-icons/fa";
 import { toast } from "react-toastify";
+
+import ReviewDetailModal from "../components/Review/ReviewDetailModal";
+import FilterComponent from "../components/Review/FilterComponent";
+
+import { AppContext } from "../context/AppContext";
 import customStyles from "../mod/tableSyles";
 
 const Review = () => {
-  useEffect(() => {
-    document.title = "Dashbor - Ulasan";
-  }, []);
-
   const { authFetch } = useContext(AppContext);
   const [reviews, setReviews] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
+
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedReview, setSelectedReview] = useState(null);
 
-  // Ambil data ulasan dari API admin
-  useEffect(() => {
-    const fetchReviews = async () => {
-      try {
-        const response = await authFetch("/api/admin/reviews", {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setReviews(data.reviews);
-        } else {
-          toast.error("Gagal mengambil ulasan.");
-        }
-      } catch (error) {
-        console.error("Error fetching reviews:", error);
-        toast.error("Terjadi kesalahan saat mengambil ulasan.");
-      }
-    };
-
-    fetchReviews();
-  }, [authFetch]);
-
-  const openDetailModal = (review) => {
-    setSelectedReview(review);
-    setIsDetailModalOpen(true);
-  };
-
-  const closeDetailModal = () => {
-    setSelectedReview(null);
-    setIsDetailModalOpen(false);
-  };
-
-  // State untuk filter pencarian
   const [filterText, setFilterText] = useState("");
   const [resetPaginationToggle, setResetPaginationToggle] = useState(false);
 
-  // Filter data ulasan berdasarkan nama pengguna, produk, atau isi ulasan
-  const filteredReviews = reviews.filter((review) => {
-    const userName = review.user?.name || "";
-    const productName = review.product?.product_name || "";
-    const reviewContent = review.review || "";
-    return (
-      userName.toLowerCase().includes(filterText.toLowerCase()) ||
-      productName.toLowerCase().includes(filterText.toLowerCase()) ||
-      reviewContent.toLowerCase().includes(filterText.toLowerCase())
-    );
-  });
+  const fetchReviews = useCallback(async () => {
+    setLoadingReviews(true);
+    setFetchError(null);
+    try {
+      const response = await authFetch("/admin/reviews"); // Path relatif
 
-  // Sub header untuk DataTable (filter pencarian)
+      if (!response.ok) {
+        let errorData = { message: "Gagal memuat data ulasan." };
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          /* ignore */
+        }
+        throw new Error(errorData.message || "Gagal memuat data.");
+      }
+      const result = await response.json();
+      setReviews(Array.isArray(result.data) ? result.data : []);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      if (error.message !== "Unauthorized") {
+        toast.error(`Error: ${error.message}`);
+        setFetchError(error.message);
+      }
+      setReviews([]);
+    } finally {
+      setLoadingReviews(false);
+    }
+  }, [authFetch]);
+
+  useEffect(() => {
+    document.title = "Yulita Cakes | Ulasan Produk";
+    fetchReviews();
+  }, [fetchReviews]);
+
+  const openDetailModal = useCallback((review) => {
+    setSelectedReview(review);
+    setIsDetailModalOpen(true);
+  }, []);
+
+  const closeDetailModal = useCallback(() => {
+    setSelectedReview(null);
+    setIsDetailModalOpen(false);
+  }, []);
+
+  const filteredReviews = useMemo(
+    () =>
+      reviews.filter((review) => {
+        const searchTerm = filterText.toLowerCase();
+        const userName = review.user?.name?.toLowerCase() || "";
+        const productName = review.product?.product_name?.toLowerCase() || "";
+        const reviewContent = review.review?.toLowerCase() || "";
+        return (
+          userName.includes(searchTerm) ||
+          productName.includes(searchTerm) ||
+          reviewContent.includes(searchTerm)
+        );
+      }),
+    [reviews, filterText]
+  );
+
+  // -- Sub Header (Filter) --
   const subHeaderComponent = useMemo(() => {
     const handleClear = () => {
       if (filterText) {
@@ -73,123 +90,160 @@ const Review = () => {
         setFilterText("");
       }
     };
-
     return (
-      <div className="flex flex-col sm:flex-row  items-center justify-between gap-3 mb-6">
-        <input
-          type="text"
-          placeholder="Cari Ulasan..."
-          aria-label="Search Input"
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          className="border border-gray-300 px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all w-full sm:w-72"
-        />
-        <button
-          onClick={handleClear}
-          className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 w-full sm:w-auto"
-        >
-          Reset Pencarian
-        </button>
-      </div>
+      <FilterComponent
+        onFilter={(e) => setFilterText(e.target.value)}
+        onClear={handleClear}
+        filterText={filterText}
+      />
     );
   }, [filterText, resetPaginationToggle]);
 
-  // Kolom DataTable
-  const columns = [
-    {
-      name: "No",
-      cell: (row, index) => <div>{index + 1}</div>,
-      width: "60px",
-      center: true,
-    },
-    {
-      name: "Nama Pengguna",
-      selector: (row) => row.user?.name || "Unknown",
-      sortable: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Produk",
-      selector: (row) => row.product?.product_name || "Unknown",
-      sortable: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Rating",
-      selector: (row) => row.rating,
-      sortable: true,
-      cell: (row) => <div>{row.rating} / 5</div>,
-      minWidth: "100px",
-    },
-    {
-      name: "Tanggal",
-      selector: (row) => {
-        const date = new Date(row.created_at);
-        return date.toLocaleString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
+  // -- Helper Format --
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
+    try {
+      return new Date(dateString).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "-";
+    }
+  };
+
+  const RatingStars = ({ rating }) => {
+    const totalStars = 5;
+    const filledStars = Math.max(0, Math.min(totalStars, rating || 0));
+    return (
+      <div className="flex items-center text-yellow-400 text">
+        {[...Array(filledStars)].map((_, i) => (
+          <span key={`f-${i}`}>★</span>
+        ))}
+        {[...Array(totalStars - filledStars)].map((_, i) => (
+          <span key={`e-${i}`} className="text-gray-300">
+            ☆
+          </span>
+        ))}
+        <span className="text-xs text-gray-600 ml-1">({rating || 0})</span>
+      </div>
+    );
+  };
+  RatingStars.propTypes = { rating: PropTypes.number };
+
+  const columns = useMemo(
+    () => [
+      {
+        name: "No",
+        selector: (row, index) => index + 1,
+        sortable: false,
+        width: "50px",
+        center: true,
       },
-      sortable: true,
-      minWidth: "150px",
-    },
-    {
-      name: "Aksi",
-      cell: (row) => (
-        <div className="flex justify-center items-center gap-3">
+      {
+        name: "Pengguna",
+        selector: (row) => row.user?.name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "150px",
+      },
+      {
+        name: "Produk",
+        selector: (row) => row.product?.product_name || "-",
+        sortable: true,
+        wrap: true,
+        minWidth: "200px",
+      },
+      {
+        name: "Rating",
+        selector: (row) => row.rating,
+        sortable: true,
+        cell: (row) => <RatingStars rating={row.rating} />,
+        center: true,
+        width: "120px",
+      },
+      {
+        name: "Ulasan",
+        selector: (row) => row.review,
+        sortable: false,
+        cell: (row) => (
+          <p className="text-xs truncate w-full" title={row.review}>
+            {row.review || "-"}
+          </p>
+        ),
+        minWidth: "250px",
+      },
+      {
+        name: "Tanggal",
+        selector: (row) => row.created_at,
+        sortable: true,
+        cell: (row) => formatDate(row.created_at),
+        minWidth: "160px",
+        wrap: true,
+      },
+      {
+        name: "Aksi",
+        center: true,
+        width: "70px",
+        cell: (row) => (
           <button
             onClick={() => openDetailModal(row)}
-            className="text-lg text-green-500 hover:text-green-600 mx-1"
+            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
             title="Lihat Detail"
           >
-            <FaEye />
+            <FaEye className="w-4 h-4" />
           </button>
-        </div>
-      ),
-      ignoreRowClick: true,
-      allowOverflow: true,
-      button: true,
-      center: true,
-      minWidth: "100px",
-    },
-  ];
-
-
+        ),
+      },
+    ],
+    [openDetailModal]
+  );
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Ulasan Produk</h1>
-      <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">
+          Ulasan Produk
+        </h1>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">
         <DataTable
           columns={columns}
           data={filteredReviews}
+          progressPending={loadingReviews}
+          progressComponent={
+            <div className="py-6 text-center text-gray-500">Memuat data...</div>
+          }
           pagination
           paginationPerPage={10}
-          paginationRowsPerPageOptions={[10, 15, 20, 50, 100]}
+          paginationRowsPerPageOptions={[10, 15, 20, 50]}
           paginationComponentOptions={{
-            rowsPerPageText: "Baris per halaman:",
+            rowsPerPageText: "Baris:",
             rangeSeparatorText: "dari",
           }}
+          paginationResetDefaultPage={resetPaginationToggle}
+          subHeader
+          subHeaderComponent={subHeaderComponent}
+          subHeaderAlign="left"
+          persistTableHead
           responsive
           highlightOnHover
           striped
           customStyles={customStyles}
-          subHeader
-          subHeaderComponent={subHeaderComponent}
-          paginationResetDefaultPage={resetPaginationToggle}
           noDataComponent={
-            <div className="p-4 text-center text-gray-500">
-              Tidak ada ulasan.
+            <div className="p-6 text-center text-gray-500">
+              {fetchError
+                ? `Gagal memuat data: ${fetchError}`
+                : "Belum ada data ulasan."}
             </div>
           }
         />
       </div>
 
-      {/* Modal Detail Ulasan */}
       <ReviewDetailModal
         isOpen={isDetailModalOpen}
         onClose={closeDetailModal}
@@ -198,5 +252,7 @@ const Review = () => {
     </div>
   );
 };
+
+Review.propTypes = {};
 
 export default Review;
